@@ -1,0 +1,717 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>model-council</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --surface: #111111;
+    --border: #2a2a2a;
+    --border-active: #f5a623;
+    --amber: #f5a623;
+    --text: #f0f0f0;
+    --text-dim: #666666;
+    --error: #ff4444;
+    --success: #44ff88;
+    --mono: 'IBM Plex Mono', ui-monospace, 'Space Mono', monospace;
+    --sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.5;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ------------------------------ Top bar ------------------------------ */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 22px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex: 0 0 auto;
+  }
+  .brand {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 0.02em;
+    text-transform: lowercase;
+  }
+  .brand .slash { color: var(--amber); }
+  .config {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    display: flex;
+    gap: 18px;
+    align-items: center;
+  }
+  .config .k { color: var(--text-dim); }
+  .config .v { color: var(--text); }
+  .status-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    margin-right: 8px;
+  }
+  .status-dot.ok { background: var(--success); animation: pulse 2s infinite ease-in-out; }
+  .status-dot.err { background: var(--error); }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(68,255,136,0.4); }
+    50%      { opacity: 0.6; box-shadow: 0 0 0 6px rgba(68,255,136,0); }
+  }
+
+  /* ------------------------------ Main --------------------------------- */
+  main {
+    flex: 1 1 auto;
+    display: grid;
+    grid-template-columns: 1fr 280px;
+    min-height: 0;
+  }
+
+  .stage {
+    padding: 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* Input */
+  .input-row {
+    display: flex;
+    gap: 0;
+    align-items: stretch;
+    border: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .input-row input {
+    flex: 1;
+    background: transparent;
+    border: 0;
+    outline: 0;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 14px;
+    padding: 14px 16px;
+  }
+  .input-row input::placeholder { color: var(--text-dim); }
+  .input-row button {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    background: var(--amber);
+    color: #000;
+    border: 0;
+    padding: 0 22px;
+    cursor: pointer;
+    transition: background 120ms linear;
+  }
+  .input-row button:hover:not(:disabled) { background: #ffbf4d; }
+  .input-row button:disabled { background: #444; color: #222; cursor: not-allowed; }
+
+  /* Council panels */
+  .council {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  @media (max-width: 1100px) {
+    .council { grid-template-columns: 1fr; }
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    transition: border-color 200ms linear;
+  }
+  .panel.active {
+    border-left-color: var(--amber);
+    animation: panel-pulse 1.6s infinite ease-in-out;
+  }
+  .panel.done { border-left-color: var(--success); animation: none; }
+  .panel.err { border-left-color: var(--error); animation: none; }
+
+  @keyframes panel-pulse {
+    0%, 100% { box-shadow: inset 3px 0 0 0 var(--amber), 0 0 0 0 rgba(245,166,35,0.0); }
+    50%      { box-shadow: inset 3px 0 0 0 var(--amber), 0 0 0 2px rgba(245,166,35,0.25); }
+  }
+
+  .panel-head {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel-head .model { color: var(--text); font-weight: 700; }
+  .panel-head .origin { color: var(--text-dim); }
+  .panel-head .flag { font-size: 14px; }
+
+  .panel-body {
+    flex: 1 1 auto;
+    padding: 14px;
+    overflow-y: auto;
+    font-family: var(--sans);
+    font-size: 13.5px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    color: var(--text);
+  }
+  .panel-body.idle { color: var(--text-dim); font-family: var(--mono); font-size: 11px; }
+
+  .panel-foot {
+    padding: 8px 14px;
+    border-top: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    min-height: 28px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .panel.active .panel-foot::before {
+    content: '●';
+    color: var(--amber);
+    animation: blink 0.8s infinite steps(2);
+  }
+  @keyframes blink { 50% { opacity: 0.2; } }
+
+  /* Judge panel */
+  .judge {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 5px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    max-height: 40vh;
+    min-height: 140px;
+    transform: translateY(10px);
+    opacity: 0;
+    transition: transform 300ms ease-out, opacity 300ms ease-out, border-color 200ms linear;
+    pointer-events: none;
+  }
+  .judge.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+  .judge.active { border-left-color: var(--amber); }
+  .judge.done   { border-left-color: var(--amber); box-shadow: 0 0 0 1px rgba(245,166,35,0.15); }
+
+  .judge-head {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .judge-head .tag {
+    color: var(--amber);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.22em;
+  }
+  .judge-head .meta { color: var(--text-dim); }
+  .judge-body {
+    flex: 1 1 auto;
+    padding: 16px;
+    overflow-y: auto;
+    font-family: var(--sans);
+    font-size: 14.5px;
+    line-height: 1.65;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+  .judge-foot {
+    padding: 8px 16px;
+    border-top: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    min-height: 28px;
+    display: flex;
+    align-items: center;
+  }
+
+  /* Sidebar — collapsible, hidden by default */
+  main {
+    transition: grid-template-columns 220ms ease-out;
+  }
+  main.nohist { grid-template-columns: 1fr 0; }
+  aside {
+    border-left: 1px solid var(--border);
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+  main.nohist aside { border-left: 0; }
+
+  .hist-toggle {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    background: transparent;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    padding: 6px 12px;
+    cursor: pointer;
+    transition: color 120ms linear, border-color 120ms linear;
+  }
+  .hist-toggle:hover { color: var(--amber); border-color: var(--amber); }
+  .hist-toggle.open { color: var(--amber); border-color: var(--amber); }
+  aside .side-head {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  aside .side-list { flex: 1 1 auto; overflow-y: auto; }
+  .hitem {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 120ms linear;
+  }
+  .hitem:hover { background: #181818; }
+  .hitem .q {
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .hitem .meta {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text-dim);
+    margin-top: 6px;
+    letter-spacing: 0.04em;
+  }
+  .hitem.empty { color: var(--text-dim); font-family: var(--mono); font-size: 11px; }
+
+  /* Bottom status */
+  footer {
+    flex: 0 0 auto;
+    padding: 8px 22px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.06em;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 18px;
+  }
+  footer .copy { text-align: center; color: var(--text-dim); }
+  footer .right { text-align: right; }
+  footer .right { color: var(--text-dim); }
+  footer .right .kbd {
+    display: inline-block;
+    border: 1px solid var(--border);
+    padding: 1px 5px;
+    margin: 0 2px;
+    border-radius: 2px;
+    color: var(--text);
+  }
+
+  /* Error banner */
+  .err-banner {
+    background: var(--error);
+    color: #000;
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 8px 16px;
+    display: none;
+  }
+  .err-banner.show { display: block; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">model<span class="slash">/</span>council</div>
+  <div class="config" id="config">
+    <span><span class="status-dot" id="status-dot"></span><span id="status-label">…</span></span>
+    <span><span class="k">council</span> <span class="v" id="cfg-council">—</span></span>
+    <span><span class="k">judge</span> <span class="v" id="cfg-judge">—</span></span>
+  </div>
+</header>
+
+<div class="err-banner" id="err-banner"></div>
+
+<main id="main" class="nohist">
+  <section class="stage">
+    <div class="input-row">
+      <input id="question" type="text" autocomplete="off"
+             placeholder="Ask the council — e.g. what caused the fall of the Roman Empire?" />
+      <button id="submit">ASK</button>
+    </div>
+
+    <div class="council" id="council">
+      <div class="panel" data-panel="0">
+        <div class="panel-head">
+          <div class="model">—</div>
+          <div class="tag" style="font-family:var(--mono);font-size:10.5px;color:var(--text-dim);letter-spacing:0.18em">Council Member 1</div>
+        </div>
+        <div class="panel-body idle">awaiting council member</div>
+        <div class="panel-foot"></div>
+      </div>
+      <div class="panel" data-panel="1">
+        <div class="panel-head">
+          <div class="model">—</div>
+          <div class="tag" style="font-family:var(--mono);font-size:10.5px;color:var(--text-dim);letter-spacing:0.18em">Council Member 2</div>
+        </div>
+        <div class="panel-body idle">awaiting council member</div>
+        <div class="panel-foot"></div>
+      </div>
+      <div class="panel" data-panel="2">
+        <div class="panel-head">
+          <div class="model">—</div>
+          <div class="tag" style="font-family:var(--mono);font-size:10.5px;color:var(--text-dim);letter-spacing:0.18em">Council Member 3</div>
+        </div>
+        <div class="panel-body idle">awaiting council member</div>
+        <div class="panel-foot"></div>
+      </div>
+    </div>
+
+    <div class="judge" id="judge">
+      <div class="judge-head">
+        <span class="tag">Synthesis</span>
+        <span class="meta" id="judge-meta">—</span>
+      </div>
+      <div class="judge-body" id="judge-body"></div>
+      <div class="judge-foot" id="judge-foot"></div>
+    </div>
+  </section>
+
+  <aside>
+    <div class="side-head">Recent sessions</div>
+    <div class="side-list" id="history">
+      <div class="hitem empty">— no sessions yet —</div>
+    </div>
+  </aside>
+</main>
+
+<footer>
+  <div id="status">idle</div>
+  <div class="copy">© Vishaka Datta J Hebbar 2026</div>
+  <div class="right">
+    <button id="hist-toggle" class="hist-toggle" aria-pressed="false">History</button>
+    <span style="margin:0 10px">·</span>
+    <span class="kbd">⌘</span><span class="kbd">↵</span> / <span class="kbd">Ctrl</span><span class="kbd">↵</span> to submit
+  </div>
+</footer>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const panels = Array.from(document.querySelectorAll('.panel'));
+  const judge = $('judge');
+  const judgeBody = $('judge-body');
+  const judgeMeta = $('judge-meta');
+  const judgeFoot = $('judge-foot');
+  const questionEl = $('question');
+  const submitBtn = $('submit');
+  const statusEl = $('status');
+  const errBanner = $('err-banner');
+
+  let es = null;  // active EventSource
+  let busy = false;
+
+  // ------------------------ Health + history on load -------------------
+  async function loadHealth() {
+    try {
+      const r = await fetch('/health');
+      const h = await r.json();
+      const dot = $('status-dot');
+      const label = $('status-label');
+      if (h.status === 'ok') { dot.className = 'status-dot ok'; label.textContent = 'ollama connected'; }
+      else { dot.className = 'status-dot err'; label.textContent = h.ollama || 'degraded'; }
+      $('cfg-council').textContent = (h.council || []).join(' · ') || '—';
+      $('cfg-judge').textContent = h.judge || '—';
+    } catch (e) {
+      $('status-dot').className = 'status-dot err';
+      $('status-label').textContent = 'backend unreachable';
+    }
+  }
+
+  async function loadHistory() {
+    try {
+      const r = await fetch('/history');
+      const h = await r.json();
+      const list = $('history');
+      if (!h.sessions || h.sessions.length === 0) {
+        list.innerHTML = '<div class="hitem empty">— no sessions yet —</div>';
+        return;
+      }
+      list.innerHTML = '';
+      for (const s of h.sessions.slice(0, 5)) {
+        const el = document.createElement('div');
+        el.className = 'hitem';
+        const ts = (s.timestamp || '').replace('T', ' ');
+        const total = s.total_seconds != null ? `${s.total_seconds}s` : '';
+        el.innerHTML = `
+          <div class="q">${escapeHtml(s.prompt || '(no prompt)')}</div>
+          <div class="meta">${ts} · ${total} · ${(s.council_models || []).join('+')} → ${escapeHtml(s.judge_model || '')}</div>
+        `;
+        el.addEventListener('click', () => showArchived(s));
+        list.appendChild(el);
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
+  }
+
+  function showArchived(s) {
+    if (busy) return;
+    resetPanels();
+    const council = s.data.council || [];
+    for (let i = 0; i < panels.length; i++) {
+      const p = panels[i];
+      const turn = council[i];
+      if (!turn) {
+        p.className = 'panel';
+        p.querySelector('.panel-body').className = 'panel-body idle';
+        p.querySelector('.panel-body').textContent = '—';
+        continue;
+      }
+      setHead(p, turn.model, turn.origin, flagFor(turn.origin));
+      const body = p.querySelector('.panel-body');
+      body.className = 'panel-body';
+      body.textContent = turn.response;
+      p.classList.add('done');
+      p.querySelector('.panel-foot').textContent = `↳ ${turn.latency_seconds}s — ${turn.tokens_generated} tokens`;
+    }
+    const j = s.data.judge;
+    if (j) {
+      judge.classList.add('show', 'done');
+      judge.classList.remove('active');
+      judgeMeta.textContent = j.model;
+      judgeBody.textContent = j.response;
+      judgeFoot.textContent = `↳ ${j.latency_seconds}s — ${j.tokens_generated} tokens · total ${s.data.total_seconds}s`;
+    }
+    setStatus(`viewing archived session — ${s.timestamp}`);
+  }
+
+  function flagFor(origin='') {
+    if (origin.includes('USA')) return '🇺🇸';
+    if (origin.includes('France')) return '🇫🇷';
+    if (origin.includes('Canada')) return '🇨🇦';
+    if (origin.includes('UK')) return '🇬🇧';
+    return '🏳️';
+  }
+
+  // ------------------------ Panel helpers ------------------------------
+  function setHead(panelEl, model /*, origin, flag — intentionally unused */) {
+    panelEl.querySelector('.model').textContent = model || '—';
+  }
+
+  function resetPanels() {
+    for (const p of panels) {
+      p.className = 'panel';
+      const b = p.querySelector('.panel-body');
+      b.className = 'panel-body idle';
+      b.textContent = 'awaiting council member';
+      p.querySelector('.panel-foot').textContent = '';
+      setHead(p, '—', '', '');
+    }
+    judge.classList.remove('show', 'active', 'done');
+    judgeBody.textContent = '';
+    judgeFoot.textContent = '';
+    judgeMeta.textContent = '—';
+    errBanner.classList.remove('show');
+    errBanner.textContent = '';
+  }
+
+  function setStatus(msg) { statusEl.textContent = msg; }
+
+  function setBusy(b) {
+    busy = b;
+    submitBtn.disabled = b;
+    submitBtn.textContent = b ? 'WORKING…' : 'ASK';
+  }
+
+  // ------------------------ Submit flow --------------------------------
+  async function ask() {
+    if (busy) return;
+    const q = questionEl.value.trim();
+    if (!q) return;
+
+    resetPanels();
+    setBusy(true);
+    setStatus('council in session…');
+
+    let sid;
+    try {
+      const r = await fetch('/ask', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({question: q}),
+      });
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(`POST /ask ${r.status}: ${t}`);
+      }
+      const j = await r.json();
+      sid = j.session_id;
+    } catch (e) {
+      showError(e.message);
+      setBusy(false);
+      setStatus('error');
+      return;
+    }
+
+    openStream(sid);
+  }
+
+  function openStream(sid) {
+    if (es) { es.close(); es = null; }
+    es = new EventSource(`/stream/${sid}`);
+
+    es.addEventListener('council_start', (ev) => {
+      const d = JSON.parse(ev.data);
+      const p = panels[d.panel];
+      if (!p) return;
+      setHead(p, d.model, d.origin, d.flag);
+      p.classList.remove('done', 'err');
+      p.classList.add('active');
+      const body = p.querySelector('.panel-body');
+      body.className = 'panel-body';
+      body.textContent = '';
+      p.querySelector('.panel-foot').textContent = 'streaming…';
+    });
+
+    es.addEventListener('council_chunk', (ev) => {
+      const d = JSON.parse(ev.data);
+      const p = panels[d.panel];
+      if (!p) return;
+      const body = p.querySelector('.panel-body');
+      body.textContent += d.text;
+      body.scrollTop = body.scrollHeight;
+    });
+
+    es.addEventListener('council_done', (ev) => {
+      const d = JSON.parse(ev.data);
+      const p = panels[d.panel];
+      if (!p) return;
+      p.classList.remove('active');
+      p.classList.add('done');
+      p.querySelector('.panel-foot').textContent = `↳ ${d.latency}s — ${d.tokens} tokens`;
+    });
+
+    es.addEventListener('judge_start', (ev) => {
+      const d = JSON.parse(ev.data);
+      judge.classList.add('show', 'active');
+      judgeMeta.textContent = d.model;
+      judgeBody.textContent = '';
+      judgeFoot.textContent = 'synthesizing…';
+      setStatus('synthesis in progress…');
+    });
+
+    es.addEventListener('judge_chunk', (ev) => {
+      const d = JSON.parse(ev.data);
+      judgeBody.textContent += d.text;
+      judgeBody.scrollTop = judgeBody.scrollHeight;
+    });
+
+    es.addEventListener('judge_done', (ev) => {
+      const d = JSON.parse(ev.data);
+      judge.classList.remove('active');
+      judge.classList.add('done');
+      judgeFoot.textContent = `↳ ${d.latency}s — ${d.tokens} tokens · total ${d.total_seconds}s`;
+      setStatus(`done in ${d.total_seconds}s`);
+      setBusy(false);
+      es.close(); es = null;
+      loadHistory();
+    });
+
+    es.addEventListener('error', (ev) => {
+      // Two kinds: our server-sent "error" events, OR transport errors.
+      let msg = 'stream error';
+      try {
+        const d = JSON.parse(ev.data || '{}');
+        msg = d.message || msg;
+      } catch {}
+      showError(msg);
+      setBusy(false);
+      setStatus('error');
+      if (es) { es.close(); es = null; }
+    });
+  }
+
+  function showError(msg) {
+    errBanner.textContent = 'ERROR · ' + msg;
+    errBanner.classList.add('show');
+  }
+
+  // ------------------------ Wire up ------------------------------------
+  submitBtn.addEventListener('click', ask);
+  questionEl.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); ask(); }
+  });
+
+  const histToggle = $('hist-toggle');
+  const mainEl = $('main');
+  histToggle.addEventListener('click', () => {
+    const open = mainEl.classList.toggle('nohist') === false;
+    histToggle.classList.toggle('open', open);
+    histToggle.setAttribute('aria-pressed', String(open));
+    histToggle.textContent = open ? 'Hide History' : 'History';
+    if (open) loadHistory();
+  });
+
+  loadHealth();
+  loadHistory();
+  setInterval(loadHealth, 15000);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Council vs Giant</title>
+    <style>
+        :root {
+            --bg: #0f1117;
+            --surface: #1a1d27;
+            --surface2: #232734;
+            --border: #2e3348;
+            --text: #e1e4ed;
+            --muted: #8b8fa3;
+            --accent: #6c5ce7;
+            --accent2: #00cec9;
+            --giant: #fd79a8;
+            --council: #6c5ce7;
+            --judge: #fdcb6e;
+            --success: #00b894;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+            background: var(--bg); color: var(--text); min-height: 100vh;
+        }
+
+        header {
+            background: linear-gradient(135deg, var(--surface) 0%, var(--surface2) 100%);
+            border-bottom: 1px solid var(--border); padding: 24px 32px;
+        }
+        header h1 {
+            font-size: 28px; font-weight: 700;
+            background: linear-gradient(135deg, var(--council), var(--accent2));
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        }
+        header p { color: var(--muted); margin-top: 4px; font-size: 13px; }
+        .status-bar { display: flex; gap: 12px; margin-top: 12px; font-size: 12px; flex-wrap: wrap; }
+        .status-pill {
+            padding: 4px 12px; border-radius: 12px;
+            background: var(--surface2); border: 1px solid var(--border);
+        }
+        .status-pill.online { border-color: var(--success); color: var(--success); }
+        .status-pill.offline { border-color: var(--giant); color: var(--giant); }
+
+        .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+        /* ---- Ask section ---- */
+        .ask-section {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: 12px; padding: 24px; margin-bottom: 24px;
+        }
+        .ask-section label { font-size: 13px; color: var(--muted); display: block; margin-bottom: 8px; }
+        .input-row { display: flex; gap: 12px; margin-bottom: 16px; }
+        .input-row input[type="text"] {
+            flex: 1; padding: 12px 16px; font-size: 15px;
+            background: var(--bg); color: var(--text);
+            border: 1px solid var(--border); border-radius: 8px;
+            font-family: inherit; outline: none; transition: border-color 0.2s;
+        }
+        .input-row input:focus { border-color: var(--accent); }
+        .submit-btn {
+            padding: 12px 32px; font-size: 15px; font-weight: 600;
+            background: linear-gradient(135deg, var(--council), var(--accent2));
+            color: #fff; border: none; border-radius: 8px;
+            cursor: pointer; font-family: inherit; transition: opacity 0.2s;
+        }
+        .submit-btn:hover { opacity: 0.9; }
+        .submit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        /* ---- Mode selector ---- */
+        .mode-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+        .mode-btn {
+            padding: 8px 16px; font-size: 13px;
+            background: var(--surface2); color: var(--text);
+            border: 1px solid var(--border); border-radius: 8px;
+            cursor: pointer; font-family: inherit; transition: all 0.2s;
+        }
+        .mode-btn:hover { border-color: var(--accent); }
+        .mode-btn.active { color: #fff; }
+        .mode-btn.all-btn.active { background: linear-gradient(135deg, var(--council), var(--giant)); border-color: var(--accent); }
+        .mode-btn.council-btn.active { background: var(--council); border-color: var(--council); }
+        .mode-btn.giant-btn.active { background: var(--giant); border-color: var(--giant); }
+        .mode-btn.single-btn.active { background: var(--accent2); border-color: var(--accent2); color: var(--bg); }
+        select.model-select {
+            padding: 8px 12px; font-size: 13px;
+            background: var(--bg); color: var(--text);
+            border: 1px solid var(--border); border-radius: 8px;
+            font-family: inherit; cursor: pointer; outline: none;
+        }
+        .mode-desc {
+            font-size: 12px; color: var(--muted); padding: 8px 0 0 0;
+            line-height: 1.5; min-height: 36px;
+        }
+
+        /* ---- Loading ---- */
+        .loading { text-align: center; padding: 48px; color: var(--muted); }
+        .spinner {
+            width: 36px; height: 36px; border: 3px solid var(--border);
+            border-top-color: var(--accent); border-radius: 50%;
+            animation: spin 0.8s linear infinite; margin: 0 auto 16px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading .steps { text-align: left; display: inline-block; margin-top: 16px; font-size: 12px; line-height: 2; }
+        .loading .steps .done { color: var(--success); }
+        .loading .steps .active { color: var(--accent); }
+        .loading .steps .pending { color: var(--border); }
+
+        /* ---- Results ---- */
+        .results { display: none; }
+        .section-label {
+            font-size: 12px; font-weight: 700; letter-spacing: 1px;
+            text-transform: uppercase; padding: 16px 0 8px;
+        }
+        .section-label.council-label { color: var(--council); }
+        .section-label.giant-label { color: var(--giant); }
+        .section-label.judge-label { color: var(--judge); }
+        .section-label.single-label { color: var(--accent2); }
+
+        .result-card {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: 12px; margin-bottom: 12px; overflow: hidden;
+        }
+        .result-card.judge-card { border-color: rgba(253,203,110,0.3); }
+        .result-card .card-header {
+            padding: 14px 20px; display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 1px solid var(--border);
+        }
+        .card-header h3 { font-size: 14px; font-weight: 600; }
+        .card-header .tag { font-size: 11px; padding: 3px 10px; border-radius: 10px; }
+        .tag.council { background: rgba(108,92,231,0.2); color: var(--council); }
+        .tag.giant { background: rgba(253,121,168,0.2); color: var(--giant); }
+        .tag.single { background: rgba(0,206,201,0.2); color: var(--accent2); }
+        .tag.judge { background: rgba(253,203,110,0.2); color: var(--judge); }
+        .card-body {
+            padding: 20px; font-size: 14px; line-height: 1.7;
+            white-space: pre-wrap; word-wrap: break-word;
+        }
+
+        .meta-bar {
+            padding: 12px 20px; background: var(--surface2); font-size: 12px;
+            color: var(--muted); display: flex; gap: 20px; border-radius: 12px; margin-bottom: 16px;
+        }
+
+        /* ---- History ---- */
+        .history-section { margin-top: 24px; }
+        .history-section h2 { font-size: 16px; color: var(--muted); margin-bottom: 12px; }
+        .history-item {
+            padding: 10px 16px; font-size: 13px; cursor: pointer;
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: 8px; margin-bottom: 6px; transition: border-color 0.2s;
+            display: flex; justify-content: space-between;
+        }
+        .history-item:hover { border-color: var(--accent); }
+    </style>
+</head>
+<body>
+
+<header>
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div>
+            <h1>Council vs Giant</h1>
+            <p>Ask a question. Tiny models and a big model answer. Then they judge each other.</p>
+        </div>
+        <a href="/history" style="padding:8px 16px;font-size:13px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:8px;text-decoration:none;font-family:inherit;">View Full History</a>
+    </div>
+    <div class="status-bar">
+        <span class="status-pill {{ 'online' if ollama_ok else 'offline' }}">
+            Ollama: {{ 'Connected' if ollama_ok else 'Offline' }}
+        </span>
+        {% for m in models %}
+        <span class="status-pill">{{ m }}</span>
+        {% endfor %}
+    </div>
+</header>
+
+<div class="container">
+
+    <div class="ask-section">
+        <label>YOUR QUESTION</label>
+        <div class="input-row">
+            <input type="text" id="question" placeholder="e.g. What year did World War I end?" autofocus>
+            <button class="submit-btn" id="askBtn" onclick="askQuestion()">Ask</button>
+        </div>
+
+        <label>MODE</label>
+        <div class="mode-row">
+            <button class="mode-btn all-btn active" data-mode="all" onclick="setMode(this)">All</button>
+            <button class="mode-btn council-btn" data-mode="council" onclick="setMode(this)">Council Only</button>
+            <button class="mode-btn giant-btn" data-mode="giant" onclick="setMode(this)">Giant Only</button>
+            <button class="mode-btn single-btn" data-mode="single" onclick="setMode(this)">Single Model</button>
+            <select class="model-select" id="singleModel" style="display:none;">
+                {% for m in models %}
+                <option value="{{ m }}">{{ m }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="mode-desc" id="modeDesc">
+            3 tiny models answer &rarr; Giant answers alone &rarr; Giant judges all council answers (correct/wrong + its verdict)
+        </div>
+    </div>
+
+    <div class="loading" id="loading" style="display:none;">
+        <div class="spinner"></div>
+        <p id="loadingText">Working...</p>
+        <div class="steps" id="loadingSteps"></div>
+    </div>
+
+    <div class="results" id="results"></div>
+
+    <div class="history-section" id="historySection" style="display:none;">
+        <h2>Previous Questions</h2>
+        <div id="historyList"></div>
+    </div>
+</div>
+
+<script>
+    let currentMode = 'all';
+    let history = [];
+
+    const MODE_DESCS = {
+        'all':     '3 tiny models answer &rarr; Giant answers alone &rarr; Giant judges all council answers (correct/wrong + its verdict)',
+        'council': '3 tiny models answer &rarr; Giant judges their answers and gives its own verdict',
+        'giant':   'Giant answers alone &rarr; 3 tiny models each judge the giant\'s answer',
+        'single':  'One model answers. No judging.',
+    };
+
+    const MODE_STEPS = {
+        'all': [
+            'Querying 3 council models in parallel...',
+            'Unloading tiny models from RAM...',
+            'Giant answering the question...',
+            'Giant judging council answers...',
+        ],
+        'council': [
+            'Querying 3 council models in parallel...',
+            'Unloading tiny models from RAM...',
+            'Giant judging council answers...',
+        ],
+        'giant': [
+            'Giant answering the question...',
+            'Unloading giant from RAM...',
+            '3 tiny models judging the giant...',
+        ],
+        'single': ['Querying model...'],
+    };
+
+    document.getElementById('question').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') askQuestion();
+    });
+
+    function setMode(btn) {
+        document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentMode = btn.dataset.mode;
+        document.getElementById('singleModel').style.display =
+            currentMode === 'single' ? 'inline-block' : 'none';
+        document.getElementById('modeDesc').innerHTML = MODE_DESCS[currentMode];
+    }
+
+    async function askQuestion() {
+        const q = document.getElementById('question').value.trim();
+        if (!q) return;
+
+        const btn = document.getElementById('askBtn');
+        btn.disabled = true;
+        document.getElementById('results').style.display = 'none';
+
+        // Show loading with steps
+        const loading = document.getElementById('loading');
+        loading.style.display = 'block';
+        const baseMode = currentMode;
+        const steps = MODE_STEPS[baseMode] || ['Working...'];
+        document.getElementById('loadingText').textContent = 'Processing...';
+        const stepsEl = document.getElementById('loadingSteps');
+        stepsEl.innerHTML = steps.map((s, i) =>
+            `<div class="${i === 0 ? 'active' : 'pending'}" id="step${i}">${s}</div>`
+        ).join('');
+
+        // Animate steps on a timer (approximate)
+        let stepIdx = 0;
+        const stepInterval = setInterval(() => {
+            if (stepIdx < steps.length) {
+                const el = document.getElementById('step' + stepIdx);
+                if (el) { el.className = 'done'; el.textContent = '>> ' + el.textContent; }
+                stepIdx++;
+                const next = document.getElementById('step' + stepIdx);
+                if (next) next.className = 'active';
+            }
+        }, 6000);
+
+        let mode = currentMode;
+        if (mode === 'single') mode = 'single:' + document.getElementById('singleModel').value;
+
+        try {
+            const resp = await fetch('/api/ask', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({question: q, mode: mode}),
+            });
+            const data = await resp.json();
+            if (data.error) throw new Error(data.error);
+            renderResults(data);
+            addToHistory(q, data.elapsed);
+        } catch (err) {
+            document.getElementById('results').innerHTML =
+                `<div class="result-card"><div class="card-body" style="color:var(--giant);">Error: ${err.message}</div></div>`;
+            document.getElementById('results').style.display = 'block';
+        }
+
+        clearInterval(stepInterval);
+        loading.style.display = 'none';
+        btn.disabled = false;
+    }
+
+    function renderResults(data) {
+        const container = document.getElementById('results');
+        let html = '';
+
+        const savedTag = data.history_id ? `<span style="color:var(--success)">Saved #${data.history_id}</span>` : '';
+        html += `<div class="meta-bar">
+            <span>Question: <strong>${esc(data.question)}</strong></span>
+            <span>Time: ${data.elapsed}s</span>
+            <span>Mode: ${data.mode}</span>
+            ${savedTag}
+        </div>`;
+
+        // ---- SINGLE MODE ----
+        if (data.mode === 'single') {
+            html += sectionLabel('Response', 'single');
+            html += card(data.model, data.answer, 'single');
+        }
+
+        // ---- ALL MODE ----
+        // Council answers -> Giant answer -> Giant's judgment of council
+        if (data.mode === 'all') {
+            html += sectionLabel('Council Answers (3 tiny models)', 'council');
+            for (const [model, answer] of Object.entries(data.council_individual)) {
+                html += card(model, answer, 'council');
+            }
+
+            html += sectionLabel('Giant Answer (solo)', 'giant');
+            html += card(data.giant_model, data.giant_answer, 'giant');
+
+            html += sectionLabel('Giant Judges the Council', 'judge');
+            html += card(data.giant_model + ' (Judge)', data.giant_judgment, 'judge', true);
+        }
+
+        // ---- COUNCIL MODE ----
+        // Council answers -> Giant judges them
+        if (data.mode === 'council') {
+            html += sectionLabel('Council Answers (3 tiny models)', 'council');
+            for (const [model, answer] of Object.entries(data.individual)) {
+                html += card(model, answer, 'council');
+            }
+
+            html += sectionLabel('Giant Judges the Council', 'judge');
+            html += card(data.giant_model + ' (Judge)', data.giant_judgment, 'judge', true);
+        }
+
+        // ---- GIANT MODE ----
+        // Giant answers -> Tiny models judge the giant
+        if (data.mode === 'giant') {
+            html += sectionLabel('Giant Answer (solo)', 'giant');
+            html += card(data.giant_model, data.giant_answer, 'giant');
+
+            html += sectionLabel('Council Judges the Giant', 'judge');
+            for (const [model, judgment] of Object.entries(data.council_judgments)) {
+                html += card(model + ' (Judge)', judgment, 'judge', true);
+            }
+        }
+
+        container.innerHTML = html;
+        container.style.display = 'block';
+        container.scrollIntoView({behavior: 'smooth', block: 'start'});
+    }
+
+    function sectionLabel(text, type) {
+        return `<div class="section-label ${type}-label">${esc(text)}</div>`;
+    }
+
+    function card(title, body, type, isJudge) {
+        const cls = isJudge ? 'result-card judge-card' : 'result-card';
+        return `<div class="${cls}">
+            <div class="card-header">
+                <h3>${esc(title)}</h3>
+                <span class="tag ${type}">${type}</span>
+            </div>
+            <div class="card-body">${esc(body)}</div>
+        </div>`;
+    }
+
+    function addToHistory(q, elapsed) {
+        history.unshift({q, elapsed});
+        if (history.length > 20) history.pop();
+        document.getElementById('historySection').style.display = 'block';
+        document.getElementById('historyList').innerHTML = history.map(h =>
+            `<div class="history-item" onclick="reask('${escAttr(h.q)}')">
+                <span>${esc(h.q)}</span>
+                <span style="color:var(--muted)">${h.elapsed}s</span>
+            </div>`
+        ).join('');
+    }
+
+    function reask(q) {
+        document.getElementById('question').value = q;
+        askQuestion();
+    }
+
+    function esc(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+    }
+
+    function escAttr(s) {
+        return s.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    }
+</script>
+</body>
+</html>
