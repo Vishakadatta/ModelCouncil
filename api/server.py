@@ -21,7 +21,7 @@ from pathlib import Path
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -109,6 +109,18 @@ async def index():
     if not FRONTEND.exists():
         raise HTTPException(500, "frontend/index.html missing")
     return FileResponse(FRONTEND)
+
+
+@app.head("/")
+async def index_head():
+    """HEAD /  — Render's uptime probe hits this; return 200 with no body."""
+    return Response(status_code=200)
+
+
+@app.head("/health")
+async def health_head():
+    """HEAD /health — satisfy any HEAD-based health checks without running NIM auth."""
+    return Response(status_code=200)
 
 
 @app.get("/health")
