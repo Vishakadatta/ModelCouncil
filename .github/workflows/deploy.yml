@@ -45,11 +45,7 @@ jobs:
           PY
 
       - uses: actions/configure-pages@v4
-      - name: Delete old github-pages artifact
-        uses: geekyeggo/delete-artifact@v2
-        with:
-          name: github-pages
-          failOnNotFound: false
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: frontend/
