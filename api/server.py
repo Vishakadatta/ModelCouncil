@@ -1,7 +1,10 @@
 """FastAPI + SSE web layer.
 
-Wraps the existing council.orchestrator.Orchestrator without modifying it.
-Each council model streams via Orchestrator._stream_generate with keep_alive=0.
+Wraps council.orchestrator.Orchestrator without modifying it.
+Council model calls go through orchestrator._stream_generate which routes
+to either Ollama (keep_alive=0 honoured) or NIM (keep_alive not sent).
+
+DO NOT CHANGE: the judge two-phase logic (independent answer → deliberation).
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
@@ -31,16 +35,19 @@ from council.orchestrator import (
     load_env_config,
 )
 
-ROOT = Path(__file__).resolve().parent.parent
-FRONTEND = ROOT / "frontend" / "index.html"
+ROOT        = Path(__file__).resolve().parent.parent
+FRONTEND    = ROOT / "frontend" / "index.html"
 RESULTS_DIR = ROOT / "results"
 
-# Map "City, Country" -> emoji flag. Country name match only.
 FLAGS = {
-    "USA": "🇺🇸",
+    "USA":    "🇺🇸",
     "France": "🇫🇷",
     "Canada": "🇨🇦",
-    "UK": "🇬🇧",
+    "UK":     "🇬🇧",
+    "UAE":    "🇦🇪",
+    "South Korea": "🇰🇷",
+    "Japan":  "🇯🇵",
+    "Israel": "🇮🇱",
 }
 
 
@@ -52,17 +59,28 @@ def _flag_for(origin: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# App + env loading
+# App setup
 # ---------------------------------------------------------------------------
 
 app = FastAPI(title="Model Council")
 
-# Queues per session; reader pulls events, producer pushes.
+# CORS is required for production: GitHub Pages (frontend) → Render (API)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],   # lock down to your Pages URL in production if desired
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
+)
+
+# Per-session event queues; reader drains, producer pushes.
 SESSIONS: dict[str, asyncio.Queue] = {}
 
 
 def _resolve_env() -> tuple[list[str], str, str, bool]:
-    """Load .env then fall back to .env.demo. Returns (council, judge, base, production)."""
+    """
+    Load .env then fall back to .env.demo.
+    Returns (council_models, judge_model, base_url, is_production).
+    """
     for path, production in ((".env", True), (".env.demo", False)):
         p = ROOT / path
         if not p.exists():
@@ -98,7 +116,32 @@ async def health():
     try:
         council, judge, base, _ = _resolve_env()
     except RuntimeError as e:
-        return {"status": "error", "ollama": "unknown", "error": str(e)}
+        return {"status": "error", "backend": "unknown", "error": str(e)}
+
+    backend = os.environ.get("BACKEND", "ollama")
+
+    if backend == "nim":
+        api_key = os.environ.get("NVIDIA_API_KEY", "")
+        nim_ok  = False
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                r = await client.get(
+                    "https://integrate.api.nvidia.com/v1/models",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                )
+                nim_ok = r.status_code == 200
+        except httpx.HTTPError:
+            nim_ok = False
+        return {
+            "status":  "ok" if nim_ok else "degraded",
+            "backend": "nim",
+            "nim":     "connected" if nim_ok else "unreachable",
+            "models":  council + [judge],
+            "council": council,
+            "judge":   judge,
+        }
+
+    # Ollama backend
     ollama_ok = False
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
@@ -107,12 +150,13 @@ async def health():
     except httpx.HTTPError:
         ollama_ok = False
     return {
-        "status": "ok" if ollama_ok else "degraded",
-        "ollama": "connected" if ollama_ok else "unreachable",
-        "base": base,
-        "models": council + [judge],
+        "status":  "ok" if ollama_ok else "degraded",
+        "backend": "ollama",
+        "ollama":  "connected" if ollama_ok else "unreachable",
+        "base":    base,
+        "models":  council + [judge],
         "council": council,
-        "judge": judge,
+        "judge":   judge,
     }
 
 
@@ -132,14 +176,14 @@ async def history():
         except (json.JSONDecodeError, OSError):
             continue
         out.append({
-            "file": f.name,
-            "timestamp": data.get("timestamp"),
-            "prompt": data.get("prompt"),
-            "plan": data.get("plan"),
+            "file":          f.name,
+            "timestamp":     data.get("timestamp"),
+            "prompt":        data.get("prompt"),
+            "plan":          data.get("plan"),
             "total_seconds": data.get("total_seconds"),
             "council_models": [c["model"] for c in data.get("council", [])],
-            "judge_model": (data.get("judge") or {}).get("model"),
-            "data": data,
+            "judge_model":   (data.get("judge") or {}).get("model"),
+            "data":          data,
         })
     return {"sessions": out}
 
@@ -152,7 +196,6 @@ async def ask(req: AskRequest):
 
     council, judge, base, production = _resolve_env()
 
-    # Validate (orchestrator does the policy check in its constructor).
     try:
         orch = Orchestrator(
             council_models=council,
@@ -164,7 +207,7 @@ async def ask(req: AskRequest):
     except ModelPolicyError as e:
         raise HTTPException(400, str(e))
 
-    sid = uuid.uuid4().hex[:12]
+    sid: str = uuid.uuid4().hex[:12]
     queue: asyncio.Queue = asyncio.Queue()
     SESSIONS[sid] = queue
     asyncio.create_task(_run_session(sid, question, orch, queue))
@@ -192,6 +235,7 @@ async def stream(sid: str):
 
 # ---------------------------------------------------------------------------
 # Session runner — emits SSE events into the session queue
+# DO NOT CHANGE: the judge two-phase logic below.
 # ---------------------------------------------------------------------------
 
 async def _emit(queue: asyncio.Queue, event: str, payload: dict) -> None:
@@ -254,10 +298,10 @@ async def _stream_one_council(
 ) -> CouncilTurn:
     origin = origin_for(model)
     await _emit(queue, "council_start", {
-        "panel": panel,
-        "model": model,
+        "panel":  panel,
+        "model":  model,
         "origin": origin,
-        "flag": _flag_for(origin),
+        "flag":   _flag_for(origin),
     })
 
     chunks: list[str] = []
@@ -274,9 +318,9 @@ async def _stream_one_council(
     latency = round(time.perf_counter() - t0, 2)
 
     await _emit(queue, "council_done", {
-        "panel": panel,
+        "panel":   panel,
         "latency": latency,
-        "tokens": tokens,
+        "tokens":  tokens,
     })
 
     return CouncilTurn(
@@ -295,9 +339,8 @@ async def _run_session(
     queue: asyncio.Queue,
 ) -> None:
     try:
-        # One shared HTTP client for the whole council so httpx connection
-        # reuse keeps things tight.
         async with httpx.AsyncClient(timeout=600.0) as client:
+            # ── Council (all members in parallel) ─────────────────────────
             council_turns = await asyncio.gather(*[
                 _stream_one_council(orch, client, i, model, question, queue)
                 for i, model in enumerate(orch.council_models)
@@ -305,12 +348,12 @@ async def _run_session(
 
             judge_origin = origin_for(orch.judge_model)
             await _emit(queue, "judge_start", {
-                "model": orch.judge_model,
+                "model":  orch.judge_model,
                 "origin": judge_origin,
-                "flag": _flag_for(judge_origin),
+                "flag":   _flag_for(judge_origin),
             })
 
-            # Phase 1 — judge answers the question on its own, no council context.
+            # ── Judge phase 1: independent answer ─────────────────────────
             own_chunks: list[str] = []
             own_tokens = 0
             t0 = time.perf_counter()
@@ -328,7 +371,7 @@ async def _run_session(
                     own_tokens = int(raw.get("eval_count", 0))
             own_answer = "".join(own_chunks).strip()
 
-            # Phase 2 — judge reviews council answers against its own reasoning.
+            # ── Judge phase 2: deliberation against council ────────────────
             await _emit(queue, "judge_chunk", {
                 "text": "\n\n▸ Reviewing the council + final verdict\n\n"
             })
@@ -372,19 +415,20 @@ async def _run_session(
         )
         RESULTS_DIR.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        out = RESULTS_DIR / f"session_{stamp}.json"
+        out   = RESULTS_DIR / f"session_{stamp}.json"
         out.write_text(json.dumps(session.to_dict(), indent=2))
 
         await _emit(queue, "judge_done", {
-            "latency": judge_latency,
-            "tokens": tokens,
+            "latency":       judge_latency,
+            "tokens":        own_tokens + delib_tokens,
             "total_seconds": session.total_seconds,
-            "session_id": sid,
-            "file": out.name,
+            "session_id":    sid,
+            "file":          out.name,
         })
+
     except httpx.HTTPError as e:
-        await _emit(queue, "error", {"message": f"Ollama error: {e}"})
-    except Exception as e:  # surface to UI, do not swallow
+        await _emit(queue, "error", {"message": f"Backend error: {e}"})
+    except Exception as e:
         await _emit(queue, "error", {"message": f"{type(e).__name__}: {e}"})
     finally:
         await queue.put(None)

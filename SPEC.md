@@ -1,9 +1,19 @@
 # Council vs Giant — Functional & Technical Specification
 
-> **Version:** 1.1
-> **Last updated:** 2026-03-25
-> **Target hardware:** MacBook M2, 8GB RAM
-> **Runtime:** Python 3.10+, Ollama, Flask
+> **Version:** 1.2
+> **Last updated:** 2026-04-24
+> **Target hardware:** MacBook M2, 8GB RAM (local) or any machine (NIM cloud backend)
+> **Runtime:** Python 3.10+, FastAPI, Ollama (local) or NVIDIA NIM (cloud)
+
+---
+
+## Changelog
+
+| Version | Date | Summary |
+|---------|------|---------|
+| 1.0 | 2026-03-25 | Initial spec — Ollama backend, Flask UI, SQLite history |
+| 1.1 | 2026-03-25 | Modular refactor, cross-judging, FastAPI + SSE rewrite |
+| 1.2 | 2026-04-24 | NVIDIA NIM backend, dynamic model discovery, geographic diversity rules, Render + GitHub Pages deploy |
 
 ---
 
@@ -869,7 +879,154 @@ python3 benchmark.py
 
 ---
 
-## 14. How to Contribute
+## 14. NIM Backend — Architecture & Policy (v1.2)
+
+### Overview
+
+The NIM backend lets ModelCouncil run without any local GPU. NVIDIA hosts the
+models; the app sends API calls with your key. The council + judge pipeline is
+identical — only the HTTP transport changes.
+
+### New Files
+
+| File | Purpose |
+|------|---------|
+| `council/nim_client.py` | Async NIM streaming client. Yields `(text, raw_dict)` matching Ollama's interface. |
+| `setup/nim_discover.py` | Live model discovery. Queries NIM, applies policy rules, returns council + judge plan. |
+
+### Modified Files
+
+| File | Change |
+|------|--------|
+| `council/models.py` | Added `NIM_PUBLISHER_MAP`, `NIM_BLOCKED_PUBLISHERS`, updated `origin_for()` for NIM model IDs. |
+| `council/orchestrator.py` | `_stream_generate` reads `BACKEND` env var and routes to `nim_client` or Ollama. `load_env_config` handles `NIM_BASE`. |
+| `api/server.py` | CORS middleware added. Health check is NIM-aware. Error messages are backend-neutral. |
+| `setup/setup.py` | First question is now backend selection (1=Ollama, 2=NIM). Offers to install Ollama automatically. |
+| `frontend/index.html` | `window.COUNCIL_API_URL` added. All fetch/EventSource calls prefixed with it. |
+
+### Backend Selection — `BACKEND` env var
+
+| Value | Transport used | keep_alive sent? |
+|-------|---------------|-----------------|
+| `ollama` (default) | Ollama `/api/generate` | Yes — `0` for council, `"5m"` for judge |
+| `nim` | NIM `/v1/chat/completions` | Never — NIM-only concept |
+
+### NIM Discovery Policy Rules (applied in order)
+
+1. **Blocked origin** — any publisher in `NIM_BLOCKED_PUBLISHERS` → rejected  
+2. **Unknown origin** — publisher not in `NIM_PUBLISHER_MAP` → rejected  
+   *(unknown origin = not trusted)*
+3. **No parameter count** — model name yields no parseable `Xb` → rejected
+4. **Role gap** — 15B ≤ params < 30B → rejected (ambiguous tier)
+5. **Geographic diversity** — council must have ≥1 USA and ≥1 non-USA model
+
+### Blocked Publishers (Chinese-origin)
+
+`NIM_BLOCKED_PUBLISHERS` in `council/models.py` contains the canonical list.
+Covered organisations include: Alibaba/Qwen, Baidu, ByteDance, Tencent,
+DeepSeek, 01.ai, THUDM, Zhipu, MiniMax, Moonshot/Kimi, Baichuan, InternLM,
+Shanghai AI Lab, SenseTime, Megvii, IDEA Research, and university labs
+(Tsinghua COAI, Peking University, Fudan NLP).
+
+### Parameter-count Parsing
+
+`nim_discover._extract_param_b(model_id)` handles:
+- Standard: `llama-3.1-8b-instruct` → 8.0
+- Fractional: `phi-3-mini-3.8b` → 3.8
+- Sub-billion: `qwen-0.5b` → 0.5
+- MoE: `mixtral-8x7b-instruct` → 56.0 (8×7)
+
+### `.env` Schema by Backend
+
+**Ollama:**
+```
+BACKEND=ollama
+OLLAMA_BASE=http://localhost:11434
+COUNCIL_MODELS=llama3.1:8b,mistral:7b,gemma2:9b
+JUDGE_MODEL=gemma2:27b
+KEEP_ALIVE=0
+```
+
+**NIM:**
+```
+BACKEND=nim
+NVIDIA_API_KEY=nvapi-...        # secret — never commit
+NIM_BASE=https://integrate.api.nvidia.com/v1
+COUNCIL_MODELS=meta/llama-3.1-8b-instruct,...
+JUDGE_MODEL=nvidia/llama-3.1-nemotron-70b-instruct
+```
+
+---
+
+## 15. Public Deployment (v1.2)
+
+### Architecture
+
+```
+GitHub (code)
+   │
+   ├── push to main
+   │       │
+   │       ├── GitHub Actions: inject Render URL → deploy frontend/
+   │       │         │
+   │       │         ▼
+   │       │   GitHub Pages (static HTML)
+   │       │   https://vishakadatta.github.io/ModelCouncil
+   │       │
+   │       └── verify: GET Render /health
+   │
+   └── Render: always-on FastAPI server
+               https://modelcouncil-api.onrender.com
+               Reads NVIDIA_API_KEY from Render environment
+```
+
+### `render.yaml`
+
+Tells Render how to build and start the API server. The `sync: false` env vars
+must be set manually in Render's Environment tab (they are secrets).
+
+### `Procfile`
+
+```
+web: uvicorn api.server:app --host 0.0.0.0 --port $PORT
+```
+
+Render auto-detects this if `render.yaml` is absent. With both present,
+`render.yaml` takes precedence.
+
+### `frontend/index.html` — URL injection
+
+Local dev:
+```javascript
+window.COUNCIL_API_URL = window.COUNCIL_API_URL || "http://localhost:7860";
+```
+
+GitHub Actions replaces this exact string before deploying to Pages:
+```javascript
+window.COUNCIL_API_URL = "https://modelcouncil-api.onrender.com";
+```
+
+### `.github/workflows/deploy.yml`
+
+Two jobs:
+1. `deploy-frontend` — injects Render URL via Python `str.replace`, uploads `frontend/` as a Pages artifact, deploys.
+2. `verify-backend` — hits `GET /health` on the Render URL; emits a warning (not failure) if backend is cold-starting.
+
+**Required GitHub secrets** (Settings → Secrets → Actions):
+- `RENDER_BACKEND_URL` — e.g. `https://modelcouncil-api.onrender.com`
+
+**Required GitHub Pages config** (Settings → Pages):
+- Source must be **GitHub Actions** (not "Deploy from branch")
+
+### CORS
+
+`api/server.py` adds `CORSMiddleware` with `allow_origins=["*"]` so the Pages
+frontend can call the Render API cross-origin. Tighten to your Pages URL in
+production if desired.
+
+---
+
+## 16. How to Contribute
 
 ### Adding a New Model to the Council
 1. Pull it: `ollama pull <model_name>`

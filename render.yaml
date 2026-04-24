@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: modelcouncil-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn api.server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: BACKEND
+        value: nim
+      # Set these in Render's Environment tab — never commit secrets to git.
+      - key: NVIDIA_API_KEY
+        sync: false
+      - key: COUNCIL_MODELS
+        sync: false
+      - key: JUDGE_MODEL
+        sync: false
+      - key: NIM_BASE
+        value: https://integrate.api.nvidia.com/v1

@@ -1,9 +1,17 @@
-"""Async council + judge orchestration over the Ollama HTTP API.
+"""Async council + judge orchestration.
 
-Architectural rule: every council generate call MUST include keep_alive=0.
-That flag is what forces Ollama to release the model's VRAM the moment the
-response completes, which is what lets us load the larger judge afterward
-on hardware that could never hold every model simultaneously.
+Architectural rules — DO NOT CHANGE:
+  1. Every council generate call MUST include keep_alive=0 on the OLLAMA path.
+     That flag forces Ollama to release VRAM immediately so the judge can load.
+  2. The judge two-phase logic (independent answer → deliberation) lives in
+     api/server.py and must not be touched here.
+  3. The NIM path never sends keep_alive — that is an Ollama-only concept.
+
+Backend routing:
+  BACKEND=ollama (default) → Ollama /api/generate  (keep_alive honoured)
+  BACKEND=nim              → NIM /v1/chat/completions via council.nim_client
+                             (_stream_generate reads BACKEND lazily from env
+                              so the .env file is always loaded first)
 """
 
 from __future__ import annotations
@@ -12,7 +20,7 @@ import asyncio
 import json
 import os
 import time
-from dataclasses import dataclass, asdict, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import AsyncIterator, Iterable
@@ -25,9 +33,9 @@ from .models import (
     origin_for,
 )
 
-# keep_alive=0 is non-negotiable for council calls. Don't change this default.
+# keep_alive=0 is non-negotiable for Ollama council calls. Don't change this.
 COUNCIL_KEEP_ALIVE = 0
-DEFAULT_TIMEOUT = 600.0
+DEFAULT_TIMEOUT    = 600.0
 
 
 @dataclass
@@ -59,11 +67,11 @@ class Session:
 
     def to_dict(self) -> dict:
         return {
-            "timestamp": self.timestamp,
-            "prompt": self.prompt,
-            "plan": self.plan,
-            "council": [asdict(t) for t in self.council],
-            "judge": asdict(self.judge) if self.judge else None,
+            "timestamp":     self.timestamp,
+            "prompt":        self.prompt,
+            "plan":          self.plan,
+            "council":       [asdict(t) for t in self.council],
+            "judge":         asdict(self.judge) if self.judge else None,
             "total_seconds": round(self.total_seconds, 2),
         }
 
@@ -78,17 +86,21 @@ class Orchestrator:
         production: bool = True,
     ):
         self.council_models = council_models
-        self.judge_model = judge_model
-        self.base = ollama_base.rstrip("/")
-        self.plan_name = plan_name
+        self.judge_model    = judge_model
+        self.base           = ollama_base.rstrip("/")
+        self.plan_name      = plan_name
 
         if production:
             assert_council_diverse(council_models)
-            for tag in council_models:
-                assert_production_allowed(tag, "council")
-            assert_production_allowed(judge_model, "judge")
+            # Ollama static allowlist check — skipped for NIM backend because
+            # nim_discover.py already applied origin + size policy at setup time.
+            backend = os.environ.get("BACKEND", "ollama")
+            if backend != "nim":
+                for tag in council_models:
+                    assert_production_allowed(tag, "council")
+                assert_production_allowed(judge_model, "judge")
 
-    # ----- HTTP helpers --------------------------------------------------
+    # ----- HTTP helpers ---------------------------------------------------
 
     async def _generate(
         self,
@@ -97,17 +109,17 @@ class Orchestrator:
         prompt: str,
         keep_alive: int | str,
     ) -> tuple[str, int, float]:
-        """Non-streaming generate. Returns (text, tokens, latency_seconds)."""
+        """Non-streaming generate (Ollama path only). Returns (text, tokens, latency)."""
         payload = {
-            "model": model,
-            "prompt": prompt,
-            "stream": False,
+            "model":      model,
+            "prompt":     prompt,
+            "stream":     False,
             "keep_alive": keep_alive,  # MUST be 0 for council calls
         }
         t0 = time.perf_counter()
-        r = await client.post(f"{self.base}/api/generate", json=payload)
+        r  = await client.post(f"{self.base}/api/generate", json=payload)
         r.raise_for_status()
-        data = r.json()
+        data    = r.json()
         latency = time.perf_counter() - t0
         return (
             data.get("response", "").strip(),
@@ -122,11 +134,29 @@ class Orchestrator:
         prompt: str,
         keep_alive: int | str,
     ) -> AsyncIterator[tuple[str, dict]]:
-        """Stream generate. Yields (chunk_text, raw_json) per line."""
+        """
+        Stream generate. Yields (chunk_text, raw_dict) per line.
+
+        BACKEND=ollama → Ollama /api/generate  (keep_alive respected)
+        BACKEND=nim    → NIM via nim_client     (keep_alive ignored — NIM concept)
+
+        raw_dict always has keys: response, done, eval_count.
+        This contract is what api/server.py depends on — do not change it.
+        """
+        backend = os.environ.get("BACKEND", "ollama")
+
+        if backend == "nim":
+            # NIM path — keep_alive is an Ollama-only concept, not sent
+            from council import nim_client
+            async for chunk in nim_client.stream_generate(model, prompt):
+                yield chunk
+            return
+
+        # Ollama path (original — keep_alive=0 for council is preserved here)
         payload = {
-            "model": model,
-            "prompt": prompt,
-            "stream": True,
+            "model":      model,
+            "prompt":     prompt,
+            "stream":     True,
             "keep_alive": keep_alive,
         }
         async with client.stream(
@@ -139,7 +169,7 @@ class Orchestrator:
                 obj = json.loads(line)
                 yield obj.get("response", ""), obj
 
-    # ----- Council & judge ----------------------------------------------
+    # ----- Council & judge -----------------------------------------------
 
     async def run_council(
         self, prompt: str, on_done=None
@@ -193,7 +223,7 @@ class Orchestrator:
             tokens_generated=tokens,
         )
 
-    # ----- Top-level session --------------------------------------------
+    # ----- Top-level session ---------------------------------------------
 
     async def run_session(
         self,
@@ -219,7 +249,7 @@ class Orchestrator:
 
         results_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        out = results_dir / f"session_{stamp}.json"
+        out   = results_dir / f"session_{stamp}.json"
         out.write_text(json.dumps(session.to_dict(), indent=2))
         return session, out
 
@@ -243,13 +273,28 @@ def _build_judge_prompt(question: str, turns: Iterable[CouncilTurn]) -> str:
 
 
 def load_env_config() -> tuple[list[str], str, str]:
-    """Read COUNCIL_MODELS, JUDGE_MODEL, OLLAMA_BASE from env / .env."""
+    """
+    Read COUNCIL_MODELS, JUDGE_MODEL, and the backend base URL from env / .env.
+
+    For BACKEND=ollama: base = OLLAMA_BASE (default http://localhost:11434)
+    For BACKEND=nim:    base = NIM_BASE    (default https://integrate.api.nvidia.com/v1)
+    """
     _load_dotenv()
+    backend = os.environ.get("BACKEND", "ollama").strip()
     council = [
-        m.strip() for m in os.environ.get("COUNCIL_MODELS", "").split(",") if m.strip()
+        m.strip()
+        for m in os.environ.get("COUNCIL_MODELS", "").split(",")
+        if m.strip()
     ]
     judge = os.environ.get("JUDGE_MODEL", "").strip()
-    base = os.environ.get("OLLAMA_BASE", "http://localhost:11434").strip()
+
+    if backend == "nim":
+        base = os.environ.get(
+            "NIM_BASE", "https://integrate.api.nvidia.com/v1"
+        ).strip()
+    else:
+        base = os.environ.get("OLLAMA_BASE", "http://localhost:11434").strip()
+
     if not council or not judge:
         raise RuntimeError(
             "COUNCIL_MODELS and JUDGE_MODEL must be set. Run `make setup` first."

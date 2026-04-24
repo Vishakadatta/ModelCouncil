@@ -1,8 +1,11 @@
-"""Approved model allowlist and tier policy.
+"""Approved model allowlist, NIM publisher map, and tier policy.
 
-APPROVED_MODELS is the production allowlist. Anything outside it must be
-rejected in production. TEST_ONLY_MODELS is a separate bucket for `make demo`
-and the test suite — never permitted in production config.
+APPROVED_MODELS is the production allowlist for the Ollama backend.
+TEST_ONLY_MODELS is a separate bucket for `make demo` and the test suite.
+
+NIM_PUBLISHER_MAP and NIM_BLOCKED_PUBLISHERS are used by both:
+  - setup/nim_discover.py  (discovery + filtering at setup time)
+  - origin_for()           (display labels at runtime)
 """
 
 from dataclasses import dataclass
@@ -36,6 +39,82 @@ TEST_ONLY_MODELS: list[str] = [
     "qwen:0.5b",
 ]
 
+# ---------------------------------------------------------------------------
+# NIM publisher registry — shared by nim_discover.py and origin_for()
+# Keys are lowercase publisher prefixes from NIM model IDs ("publisher/name").
+# ---------------------------------------------------------------------------
+
+NIM_PUBLISHER_MAP: dict[str, tuple[str, str]] = {
+    # North America
+    "meta":             ("Meta",          "USA"),
+    "nvidia":           ("NVIDIA",        "USA"),
+    "microsoft":        ("Microsoft",     "USA"),
+    "google":           ("Google",        "USA"),
+    "cohere":           ("Cohere",        "Canada"),
+    "writer":           ("Writer",        "USA"),
+    "adept":            ("Adept",         "USA"),
+    "snowflake":        ("Snowflake",     "USA"),
+    "databricks":       ("Databricks",    "USA"),
+    "togethercomputer": ("Together AI",   "USA"),
+    "teknium":          ("Teknium",       "USA"),
+    "nomic-ai":         ("Nomic AI",      "USA"),
+    "allenai":          ("Allen AI",      "USA"),
+    "salesforce":       ("Salesforce",    "USA"),
+    "mosaic":           ("MosaicML",      "USA"),
+    "mosaicml":         ("MosaicML",      "USA"),
+    "ibm":              ("IBM",           "USA"),
+    "eleutherai":       ("EleutherAI",    "USA"),
+    # Europe
+    "mistralai":        ("Mistral AI",    "France"),
+    "nv-mistralai":     ("Mistral AI",    "France"),
+    "bigscience":       ("BigScience",    "France"),
+    "stabilityai":      ("Stability AI",  "UK"),
+    # Middle East / Asia-Pacific (non-China)
+    "tiiuae":           ("TII",           "UAE"),
+    "upstage":          ("Upstage",       "South Korea"),
+    "llmjp":            ("LLM-jp",        "Japan"),
+    "cyberagent":       ("CyberAgent",    "Japan"),
+    "ai21labs":         ("AI21 Labs",     "Israel"),
+    # Community / open-source (treated as neutral)
+    "openchat":         ("OpenChat",      "Community"),
+    "garage-baind":     ("Garage-bAInd",  "Community"),
+}
+
+# NIM publishers whose models MUST be rejected.
+# This list encodes the policy: no Chinese-origin models.
+NIM_BLOCKED_PUBLISHERS: set[str] = {
+    # Alibaba / Qwen family
+    "qwen", "alibaba", "alibabacloud",
+    # Baidu
+    "baidu",
+    # ByteDance
+    "bytedance",
+    # Tencent
+    "tencent",
+    # DeepSeek
+    "deepseek-ai", "deepseek",
+    # 01.ai / Yi
+    "01-ai", "01ai",
+    # THUDM / Zhipu (Tsinghua spinoff)
+    "thudm", "zhipu-ai", "zhipuai",
+    # MiniMax / Moonshot / Kimi
+    "minimax-ai", "minimax", "moonshot-ai", "moonshot", "kimi",
+    # Baichuan
+    "baichuan-inc", "baichuan",
+    # InternLM / Shanghai AI Lab
+    "internlm", "shanghaiailab",
+    # SenseTime / Megvii
+    "senseauto", "sensetime", "megvii",
+    # ModelBest / IDEA Research
+    "modelbest", "idea-ccnl", "idea-research",
+    # University-affiliated Chinese labs
+    "pkuslam",    # Peking University
+    "thu-coai",   # Tsinghua COAI
+    "fudan-nlp",  # Fudan University
+    # Other Chinese AI companies
+    "infini-ai", "openbmb",
+}
+
 
 class ModelPolicyError(ValueError):
     """Raised when a non-approved model is used in production context."""
@@ -46,9 +125,27 @@ def approved_tags(role: str | None = None) -> list[str]:
 
 
 def origin_for(tag: str) -> str:
+    """
+    Return a human-readable origin string for a model tag.
+
+    Checks the static Ollama allowlist first, then falls back to
+    NIM publisher prefix inference for tags like "meta/llama-3.1-8b-instruct".
+    """
+    # Static Ollama allowlist (exact match)
     for m in APPROVED_MODELS:
         if m.tag == tag:
             return m.origin
+    # NIM publisher prefix inference
+    return _nim_origin_for(tag)
+
+
+def _nim_origin_for(tag: str) -> str:
+    """Infer origin from NIM model ID publisher prefix."""
+    publisher = tag.split("/", 1)[0].lower() if "/" in tag else tag.split(":")[0].lower()
+    entry = NIM_PUBLISHER_MAP.get(publisher)
+    if entry:
+        company, country = entry
+        return f"{company}, {country}"
     return "unknown"
 
 
@@ -60,7 +157,11 @@ def vram_for(tag: str) -> int:
 
 
 def assert_production_allowed(tag: str, role: str) -> None:
-    """Raise if tag is not on the approved list for the given role."""
+    """
+    Raise if tag is not on the Ollama approved list for the given role.
+    This check is Ollama-specific. NIM models bypass it because
+    nim_discover.py enforces its own origin + size policy at setup time.
+    """
     if tag in TEST_ONLY_MODELS and tag not in approved_tags(role):
         raise ModelPolicyError(
             f"Model '{tag}' is test-only and cannot be used in production "

@@ -447,7 +447,14 @@
 </footer>
 
 <script>
+  /* COUNCIL_API_URL — replaced by CI for production builds.
+     Local dev: the FastAPI server is on the same origin (port 7860).
+     Production: GitHub Actions injects the Render backend URL here. */
+  window.COUNCIL_API_URL = window.COUNCIL_API_URL || "http://localhost:7860";
+</script>
+<script>
 (() => {
+  const API = window.COUNCIL_API_URL;
   const $ = (id) => document.getElementById(id);
   const panels = Array.from(document.querySelectorAll('.panel'));
   const judge = $('judge');
@@ -465,7 +472,7 @@
   // ------------------------ Health + history on load -------------------
   async function loadHealth() {
     try {
-      const r = await fetch('/health');
+      const r = await fetch(`${API}/health`);
       const h = await r.json();
       const dot = $('status-dot');
       const label = $('status-label');
@@ -481,7 +488,7 @@
 
   async function loadHistory() {
     try {
-      const r = await fetch('/history');
+      const r = await fetch(`${API}/history`);
       const h = await r.json();
       const list = $('history');
       if (!h.sessions || h.sessions.length === 0) {
@@ -591,7 +598,7 @@
 
     let sid;
     try {
-      const r = await fetch('/ask', {
+      const r = await fetch(`${API}/ask`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({question: q}),
@@ -614,7 +621,7 @@
 
   function openStream(sid) {
     if (es) { es.close(); es = null; }
-    es = new EventSource(`/stream/${sid}`);
+    es = new EventSource(`${API}/stream/${sid}`);
 
     es.addEventListener('council_start', (ev) => {
       const d = JSON.parse(ev.data);

@@ -1,0 +1,71 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+# Required for GitHub Pages deployment via Actions
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Prevent concurrent deploys; let an in-progress run finish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  # ── Job 1: Build + deploy frontend to GitHub Pages ──────────────────────
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Inject Render backend URL into frontend
+        # Replaces the localhost fallback with the real Render API URL.
+        # The sed pattern targets the exact string written by setup/setup.py
+        # so any accidental double-injection is idempotent.
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          f = pathlib.Path("frontend/index.html")
+          old = 'window.COUNCIL_API_URL = window.COUNCIL_API_URL || "http://localhost:7860";'
+          new = f'window.COUNCIL_API_URL = "${{ secrets.RENDER_BACKEND_URL }}";'
+          text = f.read_text()
+          if old in text:
+              f.write_text(text.replace(old, new))
+              print(f"Injected: ${{ secrets.RENDER_BACKEND_URL }}")
+          else:
+              print("WARNING: injection marker not found — frontend already patched or marker changed")
+          PY
+
+      - uses: actions/configure-pages@v4
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  # ── Job 2: Verify the Render backend is healthy after deploy ─────────────
+  verify-backend:
+    needs: deploy-frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check backend health
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "${{ secrets.RENDER_BACKEND_URL }}/health" \
+            --max-time 15 \
+            || echo "000")
+          echo "Backend /health status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "::warning::Backend returned $STATUS — it may still be starting up on Render's free tier (cold start ~30s)."
+          fi
