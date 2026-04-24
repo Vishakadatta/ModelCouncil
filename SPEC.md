@@ -17,7 +17,7 @@
 
 ---
 
-## 1. What This Project Does
+## 1. What This Project Does ?
 
 Council vs Giant answers one question: **Can a group of tiny AI models, working together and judged by a bigger model, match that bigger model working alone?**
 
