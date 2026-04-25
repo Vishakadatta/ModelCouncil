@@ -214,11 +214,16 @@ def test_nim_blocks_chinese_publishers():
         "01-ai",
         "thudm",         # Tsinghua spinoff
         "zhipu-ai",
+        "z-ai",          # Zhipu AI on NIM (no-hyphen form)
         "minimax-ai",
+        "minimaxai",     # MiniMax on NIM (no-hyphen form)
         "moonshot-ai",
+        "moonshotai",    # Moonshot/Kimi on NIM (no-hyphen form)
         "baichuan-inc",
         "internlm",
         "sensetime",
+        "stepfun-ai",    # Step (Chinese AI startup)
+        "baai",          # Beijing Academy of Artificial Intelligence
     ]
     for pub in blocked:
         assert is_blocked_origin(pub), f"Expected {pub!r} to be blocked"

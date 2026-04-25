@@ -64,6 +64,9 @@ NIM_PUBLISHER_MAP: dict[str, tuple[str, str]] = {
     "mosaicml":         ("MosaicML",      "USA"),
     "ibm":              ("IBM",           "USA"),
     "eleutherai":       ("EleutherAI",    "USA"),
+    "openai":           ("OpenAI",        "USA"),
+    "abacusai":         ("Abacus.AI",     "USA"),
+    "zyphra":           ("Zyphra",        "USA"),
     # Europe
     "mistralai":        ("Mistral AI",    "France"),
     "nv-mistralai":     ("Mistral AI",    "France"),
@@ -74,10 +77,14 @@ NIM_PUBLISHER_MAP: dict[str, tuple[str, str]] = {
     "upstage":          ("Upstage",       "South Korea"),
     "llmjp":            ("LLM-jp",        "Japan"),
     "cyberagent":       ("CyberAgent",    "Japan"),
+    "stockmark":        ("Stockmark",     "Japan"),
     "ai21labs":         ("AI21 Labs",     "Israel"),
+    "aisingapore":      ("AI Singapore",  "Singapore"),
+    "sarvamai":         ("Sarvam AI",     "India"),
     # Community / open-source (treated as neutral)
     "openchat":         ("OpenChat",      "Community"),
     "garage-baind":     ("Garage-bAInd",  "Community"),
+    "bigcode":          ("BigCode",       "Community"),
 }
 
 # NIM publishers whose models MUST be rejected.
@@ -97,8 +104,8 @@ NIM_BLOCKED_PUBLISHERS: set[str] = {
     "01-ai", "01ai",
     # THUDM / Zhipu (Tsinghua spinoff)
     "thudm", "zhipu-ai", "zhipuai",
-    # MiniMax / Moonshot / Kimi
-    "minimax-ai", "minimax", "moonshot-ai", "moonshot", "kimi",
+    # MiniMax / Moonshot / Kimi  (NIM uses no-hyphen forms: minimaxai, moonshotai)
+    "minimax-ai", "minimaxai", "minimax", "moonshot-ai", "moonshotai", "moonshot", "kimi",
     # Baichuan
     "baichuan-inc", "baichuan",
     # InternLM / Shanghai AI Lab
@@ -111,6 +118,12 @@ NIM_BLOCKED_PUBLISHERS: set[str] = {
     "pkuslam",    # Peking University
     "thu-coai",   # Tsinghua COAI
     "fudan-nlp",  # Fudan University
+    # Zhipu AI / GLM family  (NIM publisher prefix: z-ai)
+    "z-ai", "zhipu-ai", "zhipuai", "glm",
+    # Step AI (Chinese)
+    "stepfun-ai", "stepfun",
+    # Beijing Academy of Artificial Intelligence
+    "baai",
     # Other Chinese AI companies
     "infini-ai", "openbmb",
 }
