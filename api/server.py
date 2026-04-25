@@ -78,9 +78,23 @@ SESSIONS: dict[str, asyncio.Queue] = {}
 
 def _resolve_env() -> tuple[list[str], str, str, bool]:
     """
-    Load .env then fall back to .env.demo.
+    Resolve configuration from environment variables.
+
+    Priority:
+      1. Env vars already present in the process (Render, Docker, CI, etc.)
+         If BACKEND is already set, skip file loading entirely — we're running
+         in a managed environment where secrets are injected directly.
+      2. .env file  (local production setup via `make setup`)
+      3. .env.demo  (local demo mode via `make demo`)
+
     Returns (council_models, judge_model, base_url, is_production).
     """
+    # 1. Managed environment (Render, etc.) — env vars already populated.
+    if os.environ.get("BACKEND"):
+        council, judge, base = load_env_config()
+        return council, judge, base, True
+
+    # 2–3. Local file-based setup.
     for path, production in ((".env", True), (".env.demo", False)):
         p = ROOT / path
         if not p.exists():
@@ -90,9 +104,10 @@ def _resolve_env() -> tuple[list[str], str, str, bool]:
             if not line or line.startswith("#") or "=" not in line:
                 continue
             k, v = line.split("=", 1)
-            os.environ[k.strip()] = v.strip()
+            os.environ.setdefault(k.strip(), v.strip())
         council, judge, base = load_env_config()
         return council, judge, base, production
+
     raise RuntimeError("No .env or .env.demo found. Run `make setup` or `make demo`.")
 
 
