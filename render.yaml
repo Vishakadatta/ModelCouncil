@@ -12,7 +12,7 @@ services:
       - key: NVIDIA_API_KEY
         sync: false
       - key: COUNCIL_MODELS
-        value: meta/llama-3.1-8b-instruct,mistralai/mistral-7b-instruct-v0.3,microsoft/phi-4-mini-instruct
+        value: meta/llama-3.1-8b-instruct,mistralai/mistral-7b-instruct-v0.3,google/gemma-3-4b-it
       - key: JUDGE_MODEL
         value: nvidia/llama-3.1-nemotron-70b-instruct
       - key: NIM_BASE
