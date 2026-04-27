@@ -146,9 +146,18 @@ class Orchestrator:
         backend = os.environ.get("BACKEND", "ollama")
 
         if backend == "nim":
-            # NIM path — keep_alive is an Ollama-only concept, not sent
+            # NIM path — keep_alive is an Ollama-only concept, not sent.
+            # Pass the appropriate fallback pool based on whether this is a
+            # council model or the judge.
             from council import nim_client
-            async for chunk in nim_client.stream_generate(model, prompt):
+            pool = (
+                nim_client.JUDGE_FALLBACK_POOL
+                if model == self.judge_model
+                else nim_client.COUNCIL_FALLBACK_POOL
+            )
+            async for chunk in nim_client.stream_generate(
+                model, prompt, fallback_pool=pool
+            ):
                 yield chunk
             return
 
