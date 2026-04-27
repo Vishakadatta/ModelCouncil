@@ -106,10 +106,12 @@ async def stream_generate(
                 yield item
             return  # success
         except httpx.HTTPStatusError as e:
-            if e.response.status_code == 503:
+            if e.response.status_code in (404, 503):
+                # 404 = model not available on this tier
+                # 503 = free-tier queue full
                 last_error = e
                 continue  # try next candidate
-            raise  # 4xx or other 5xx — don't retry
+            raise  # other 4xx/5xx — don't retry
 
     raise RuntimeError(
         f"All NIM fallback models returned 503 (queue full). "
