@@ -1,168 +1,289 @@
-# Functional Specification
+# Functional Specification — Model Council
 
-## Goal
+## Purpose
 
-An orchestration system where multiple small LLMs (the "council") answer a user question independently and in parallel, then a larger "judge" model deliberates and produces a single best final answer. Designed to run on hardware that cannot hold all models in VRAM at once.
+An orchestration system where multiple small LLMs (the "council") answer a question independently and in parallel, then a larger "judge" model deliberates and produces a single best final answer.
 
-Two surfaces are supported:
-- **CLI** — `python council.py "..."` or `make run`.
-- **Web** — FastAPI + Server-Sent Events on port 7860, served by `make web`.
+Two backends are supported:
+- **NVIDIA NIM** — cloud-hosted models, no GPU needed, free tier available at [build.nvidia.com](https://build.nvidia.com)
+- **Ollama** — fully local, GPU recommended
 
-## Core invariant: keep_alive=0
+Two interfaces are supported:
+- **Web UI** — FastAPI + Server-Sent Events on port 7860, live at https://vishakadatta.github.io/ModelCouncil/
+- **CLI** — `python council.py "..."` or `make run`
 
-Every council generate request **must** set `keep_alive=0` in the Ollama payload. This forces immediate VRAM eviction when the response completes. Without it, models stay resident for 5 minutes (Ollama's default) and the sequential-loading scheme breaks.
+---
 
-Peak VRAM = `max(sum(council), judge)`, not `sum(council) + judge`.
+## Core pipeline
 
-Enforced by `tests/test_pipeline.py::test_keep_alive_zero_in_every_council_call`.
+```
+1. User submits a question (web form or CLI)
+2. Council models run concurrently via asyncio.gather
+   - NIM path: POST /v1/chat/completions with SSE streaming
+   - Ollama path: POST /api/generate with keep_alive=0 (mandatory)
+3. After all council members finish:
+   Judge phase 1 — answers independently, no council context
+   Judge phase 2 — reviews council answers vs its own, issues final verdict
+4. Session saved to results/session_<timestamp>.json
+```
 
-## Pipeline
+---
 
-1. User provides a prompt (CLI or web form).
-2. Council models fire concurrently via `asyncio.gather`, each with `keep_alive=0`.
-3. As each completes, its VRAM is released.
-4. Judge loads (normal keep_alive) and runs two phases — see below.
-5. Session is serialized to `results/session_<timestamp>.json`.
+## Ollama invariant: keep_alive=0
 
-## Deliberative judge (two phases)
+Every Ollama council generate request **must** set `keep_alive=0`. This forces immediate VRAM eviction when the response completes. Without it, models stay resident for 5 minutes (Ollama's default) and the system OOMs when the judge tries to load.
 
-The judge is not a simple synthesizer — it is the senior reasoner.
+Peak VRAM = `max(sum(council), judge)` — not `sum(council) + judge`.
 
-**Phase 1 — Independent answer.**
-Judge receives the user question with **no** council context and answers using only its own knowledge. The prompt instructs it to be concise, not hedge, and not reference other sources.
+Enforced by `tests/test_pipeline.py::test_keep_alive_zero_in_every_council_call`. Do not remove this test or the constant.
 
-Between phases the judge stays hot via `keep_alive="5m"`, so Phase 2 incurs no load cost.
+The judge uses `keep_alive="5m"` to stay hot between its two phases so phase 2 incurs no reload cost.
 
-**Phase 2 — Review + final verdict.**
-Judge receives: the original question, its own Phase 1 answer, and every council member's answer. It must:
-1. For each council member, tag the answer as **CORRECT / PARTIALLY CORRECT / WRONG** with a one-line reason.
-2. Call out any council detail that genuinely improves on its own answer.
-3. Emit a single **FINAL VERDICT** — the authoritative answer the user sees.
+This invariant is **Ollama-only**. The NIM backend never sends `keep_alive` — NVIDIA manages server-side memory.
 
-Rationale: a naive "pick the best of three" prompt biases the judge toward the council even when the council is wrong. This flow anchors the judge on its own reasoning first.
+---
 
-The UI streams both phases into the same Synthesis panel, separated by divider headers ("▸ My own answer", "▸ Reviewing the council + final verdict").
+## Deliberative judge
 
-## Model policy
+The judge is not a synthesizer — it is the senior reasoner. It runs in two sequential streaming phases:
 
-`council/models.py` defines two lists:
+**Phase 1 — Independent answer**
 
-- `APPROVED_MODELS` — production allowlist. Each entry records tag, role (council / judge / both), origin, and VRAM footprint in GB.
-- `TEST_ONLY_MODELS` — permitted only for `make demo` and the test suite. Never valid in a production `.env`.
+Prompt instructs the judge to answer using only its own knowledge. No council answers are visible. Output streams to the UI as "▸ My own answer".
 
-Approved vendors: Meta, Mistral AI, Google, Microsoft, Cohere. No Chinese-origin models in production.
+**Phase 2 — Review and final verdict**
+
+Prompt gives the judge: original question, its own phase 1 answer, and all council answers. It must:
+1. For each council member: state CORRECT / PARTIALLY CORRECT / WRONG and why (one line each)
+2. Note any council detail that genuinely improves on its own answer
+3. Emit a single FINAL VERDICT — the authoritative answer the user reads
+
+Output streams to the UI as "▸ Reviewing the council + final verdict".
+
+Rationale: a naive "pick the best of three" prompt anchors the judge to the council before it thinks for itself, causing it to rubber-stamp wrong council answers. Phase 1 forces independent reasoning first.
+
+---
+
+## NIM backend
+
+### Discovery (setup time)
+
+`setup/nim_discover.py` queries `GET /v1/models` live and applies these rules in order:
+
+| Rule | Action |
+|------|--------|
+| Publisher in `NIM_BLOCKED_PUBLISHERS` | Reject |
+| Publisher not in `NIM_PUBLISHER_MAP` | Reject (unknown origin = not trusted) |
+| No parseable parameter count in model name | Reject |
+| 15B ≤ params < 30B | Reject (ambiguous gap — skip) |
+| params < 15B | council candidate |
+| params ≥ 30B | judge candidate |
+| Council has < 1 USA model | Reject entire set |
+| Council has < 1 non-USA model | Accept if no non-USA available (warn) |
+
+Blocked publishers (all spelling variants): Alibaba/Qwen, Baidu, ByteDance, Tencent, DeepSeek, 01.ai, Zhipu/GLM (z-ai, zhipu-ai, zhipuai), MiniMax (minimax-ai, minimaxai), Moonshot/Kimi (moonshot-ai, moonshotai), Baichuan, InternLM, Shanghai AI Lab, SenseTime, Megvii, Step (stepfun-ai, stepfun), BAAI, IDEA Research, Tsinghua COAI, Fudan NLP, Peking University SLAM.
+
+### Runtime fallback
+
+If a selected model returns 503 (queue full) or 404 (deprecated/not on free tier), `nim_client.stream_generate` automatically retries the next model from `COUNCIL_FALLBACK_POOL` or `JUDGE_FALLBACK_POOL`. The user never sees these errors.
+
+Only 503 and 404 trigger a retry. Any other status code (401, 429, 500…) surfaces immediately.
+
+### API details
+
+- **Base URL:** `https://integrate.api.nvidia.com/v1`
+- **Endpoint:** `POST /chat/completions`
+- **Auth:** `Authorization: Bearer <NVIDIA_API_KEY>`
+- **Streaming:** SSE (`data: {...}` lines, `data: [DONE]` terminator)
+- **Model ID format:** `publisher/model-name` (e.g. `meta/llama-3.1-8b-instruct`)
+
+---
+
+## Ollama backend
+
+### Discovery (setup time)
+
+`setup/setup.py` detects VRAM and selects from `APPROVED_MODELS`:
+
+| Plan | Council | Judge | Min VRAM |
+|------|---------|-------|----------|
+| Safe | 2 models (7–9B each) | 8B | ~8 GB |
+| Balanced | 3 models (7–9B each) | 8B | ~16 GB |
+| Max | 3 models (7–9B each) | 27B+ | ~24 GB |
+
+Peak VRAM is computed as `max(sum(council), judge)` before presenting any plan. No plan is offered if it exceeds available VRAM.
+
+### Model policy
+
+`council/models.py` defines:
+
+- `APPROVED_MODELS` — production allowlist. Tags: `llama3.1:8b`, `mistral:7b`, `gemma2:9b`, `phi3:mini`, `phi3:medium`, `command-r`, `gemma2:27b`, `command-r-plus`. Vendors: Meta, Mistral AI, Google, Microsoft, Cohere.
+- `TEST_ONLY_MODELS` — `tinyllama`, `phi3:mini`, `gemma2:2b`, `qwen:0.5b`. Permitted only when `production=False`.
 
 Policy checks:
-- `assert_production_allowed(tag, role)` rejects unknown or test-only models.
-- `assert_council_diverse(tags)` rejects duplicate council members and councils of fewer than 2.
-- Plans pick council members from **distinct origins**.
-- Judge must be strictly larger than every council member.
+- `assert_production_allowed(tag, role)` — rejects unknown or test-only models in production
+- `assert_council_diverse(tags)` — rejects duplicates; requires ≥ 2 models
 
-## Setup wizard (`setup/setup.py`)
+---
 
-1. Ask local or remote.
-2. Local path verifies Ollama is installed and running; starts it if needed. Remote path offers SSH tunnel or direct URL; SSH prints the manual command if the automatic launch fails.
-3. Verify reachability via `GET /api/tags` before any pull.
-4. Detect VRAM: `nvidia-smi` → `rocm-smi` → macOS `sysctl hw.memsize` → `/proc/meminfo`. If all fail, print per-OS manual commands and ask the user.
-5. Build and render plans using `setup/plans.py`:
-   - **Safe** — 2-model council, smaller judge, available at ~8 GB.
-   - **Balanced** — shown only if VRAM ≥ 16 GB.
-   - **Max** — shown only if VRAM ≥ 24 GB.
-   - Peak VRAM = `max(sum(council), judge)`. Never render a plan that exceeds the budget.
-6. Confirm download size, then pull via `POST /api/pull` with streaming progress.
-7. Write `.env` (or `.env.demo` in demo mode).
-8. After `make setup`: `make web` runs automatically.
+## Setup wizard
 
-## Web layer (`api/server.py` + `frontend/index.html`)
+`setup/setup.py` — interactive wizard run via `make setup`:
 
-FastAPI app, served by `uvicorn` on port 7860.
+1. **Choose backend:** Local Ollama or NVIDIA NIM
+2. **NIM path:**
+   - Prompt for API key (validated via `GET /v1/models`)
+   - `nim_discover.discover_and_plan` queries live catalogue, applies policy, shows plan
+   - User confirms or cancels
+   - Writes `.env` with `BACKEND=nim`, `NVIDIA_API_KEY`, `NIM_BASE`, `COUNCIL_MODELS`, `JUDGE_MODEL`
+3. **Ollama path:**
+   - Verify Ollama installed and running (offers to install via brew/curl if not)
+   - Detect VRAM: `nvidia-smi` → `rocm-smi` → macOS `sysctl hw.memsize` → `/proc/meminfo`
+   - Build and display valid plans for detected VRAM
+   - User selects plan, wizard pulls models, writes `.env` with `BACKEND=ollama`
+
+---
+
+## Web layer
+
+### Server — `api/server.py`
+
+FastAPI app served by `uvicorn` on port 7860 (local) or `$PORT` (Render).
+
+**Config resolution — `_resolve_env()`:**
+1. `BACKEND` already in `os.environ` → managed environment (Render, Docker) — use directly
+2. `.env` file exists → local production
+3. `.env.demo` exists → local demo
+4. Nothing → `RuntimeError` with instructions
 
 **Routes:**
-- `GET /` — serves the single-file HTML UI.
-- `POST /ask` — `{"question": "..."}` → `{"session_id": "..."}`. Spawns a background asyncio task and returns immediately.
-- `GET /stream/{sid}` — Server-Sent Events for a live session.
-- `GET /history` — last 10 sessions from `results/`.
-- `GET /health` — Ollama reachability + loaded models.
 
-**SSE events** (emitted into the per-session asyncio queue):
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/` | Serves `frontend/index.html` |
+| `HEAD` | `/` | 200, no body (Render uptime probe) |
+| `GET` | `/health` | Backend status — model list, connection check |
+| `HEAD` | `/health` | 200, no body (proxy health checks) |
+| `POST` | `/ask` | `{"question":"..."}` → `{"session_id":"..."}` |
+| `GET` | `/stream/{sid}` | SSE event stream |
+| `GET` | `/history` | Last 10 sessions from `results/` |
 
-| Event           | Payload                                                                 |
-|-----------------|-------------------------------------------------------------------------|
-| `council_start` | `{panel, model, origin, flag}`                                          |
-| `council_chunk` | `{panel, text}`                                                         |
-| `council_done`  | `{panel, latency, tokens}`                                              |
-| `judge_start`   | `{model, origin, flag}`                                                 |
-| `judge_chunk`   | `{text}` — both phases, with inline divider headers                     |
-| `judge_done`    | `{latency, tokens, total_seconds, session_id, file}`                    |
-| `error`         | `{message}`                                                             |
+**CORS:** `allow_origins=["*"]` — required for GitHub Pages (different origin) to call Render API.
 
-**Frontend contract:**
-- Three grey panels ("Council Member 1/2/3") pulse amber during streaming, lock green on done.
-- Synthesis panel slides up after all council panels complete.
-- History sidebar hidden by default, toggled from footer. Clicking a history item replays council + judge panels inline.
-- No flags or origin labels in panel heads (cosmetic decision).
-- Copyright line: "© Vishaka Datta J Hebbar 2026".
+### SSE events
 
-The web layer calls `orch._stream_generate(...)` directly. `council/orchestrator.py` and `council/models.py` are **not modified** by the web layer.
+| Event | Payload | When |
+|-------|---------|------|
+| `council_start` | `{panel, model, origin, flag}` | Council member begins |
+| `council_chunk` | `{panel, text}` | Token streamed |
+| `council_done` | `{panel, latency, tokens}` | Council member finished |
+| `judge_start` | `{model, origin, flag}` | Judge begins |
+| `judge_chunk` | `{text}` | Judge token — both phases interleaved |
+| `judge_done` | `{latency, tokens, total_seconds, session_id, file}` | Complete |
+| `error` | `{message}` | Any exception |
 
-## Demo mode (`make demo`)
+### Frontend — `frontend/index.html`
 
-- Skips remote setup and VRAM detection.
-- Uses `TEST_ONLY_MODELS` only (default: `tinyllama` + `smollm2:1.7b` + `gemma2:2b` council, `llama3.2:3b` judge).
-- Writes `.env.demo`; never touches `.env`.
-- Pulls the tiny models if not present, then runs one hardcoded question.
-- Prints `DEMO MODE — using tiny models, not suitable for real use.`
+Single static HTML file. No build step, no npm, no framework. Vanilla JS + `EventSource`.
 
-The orchestrator takes a `production=False` flag which disables the `APPROVED_MODELS` check, letting demo mode use tiny models without weakening the production policy.
+- Three council panels pulse amber while streaming, lock green on `council_done`
+- Judge "Synthesis" panel appears after all council panels complete
+- Both judge phases stream into the same panel, separated by `▸` headers
+- History sidebar hidden by default; toggle from footer; clicking a session replays its panels
+- `window.COUNCIL_API_URL` — set to `http://localhost:7860` in the file; CI replaces it with the Render URL before deploying to GitHub Pages
 
-## Results JSON
+---
+
+## Demo mode
+
+`make demo` → `make web`:
+- `production=False` disables the `APPROVED_MODELS` check
+- Uses `TEST_ONLY_MODELS` — smallest available models
+- Writes `.env.demo`, never touches `.env`
+- Suitable for CPU-only machines with no API key
+
+---
+
+## Session JSON
 
 ```json
 {
-  "timestamp": "2026-04-16T14:30:22",
-  "prompt": "What is gravity?",
-  "plan": "web",
+  "timestamp": "2026-04-26T14:30:00",
+  "prompt":    "What is gravity?",
+  "plan":      "web",
   "council": [
     {
-      "model": "tinyllama",
-      "origin": "Unknown, —",
-      "response": "...",
-      "latency_seconds": 3.2,
-      "tokens_generated": 87
+      "model":            "meta/llama-3.1-8b-instruct",
+      "origin":           "Meta, USA",
+      "response":         "Gravity is a fundamental force...",
+      "latency_seconds":  3.2,
+      "tokens_generated": 142
     }
   ],
   "judge": {
-    "model": "llama3.2:3b",
-    "origin": "Meta, USA",
-    "response": "▸ My own answer\n\n...\n\n▸ Reviewing the council + final verdict\n\n...",
-    "latency_seconds": 8.4,
-    "tokens_generated": 203
+    "model":            "nvidia/llama-3.1-nemotron-70b-instruct",
+    "origin":           "NVIDIA, USA",
+    "response":         "▸ My own answer\n\n...\n\n▸ Reviewing the council + final verdict\n\n...",
+    "latency_seconds":  8.1,
+    "tokens_generated": 389
   },
-  "total_seconds": 11.6
+  "total_seconds": 11.3
 }
 ```
 
+The judge `response` always contains both phases. They can be split on `▸` for display or analysis.
+
+---
+
 ## Error handling
 
-- Non-approved model in production → `ModelPolicyError` with a clear message.
-- Duplicate council models → `ModelPolicyError`.
-- Ollama unreachable at verify step → exit before any pull, print endpoint and HTTP error.
-- Model pull error → surface Ollama's error line and abort setup.
-- Runtime Ollama errors in the web layer → emitted to the client as an `error` SSE event, not swallowed.
+| Scenario | Behaviour |
+|----------|-----------|
+| NIM 503 — queue full | Auto-retry next model in fallback pool |
+| NIM 404 — model deprecated | Auto-retry next model in fallback pool |
+| NIM 401 — bad API key | Surface immediately as SSE `error` event |
+| All fallback models exhausted | `RuntimeError` surfaced as `error` event |
+| Ollama unreachable at setup | Exit before any pull, print endpoint + HTTP error |
+| Non-approved model in production | `ModelPolicyError` — caught at Orchestrator construction |
+| Duplicate council models | `ModelPolicyError` — caught at Orchestrator construction |
+| Empty question | FastAPI returns HTTP 400 |
+
+---
 
 ## Testing
 
-`tests/test_pipeline.py` uses `httpx.MockTransport` to fake the Ollama HTTP API. No GPU required. Covers:
+```bash
+make test
+# or: pytest tests/test_pipeline.py -v
+```
 
-- `keep_alive=0` invariant on every council call.
-- Judge call does not use `keep_alive=0`.
-- Production rejects duplicates, test-only, and unknown models.
-- Production accepts approved models.
-- Session JSON schema matches the documented shape.
-- `production=False` bypasses the policy check.
+14 tests. Uses `httpx.MockTransport` to fake both Ollama and NIM — no GPU, no network, no API key required. Runs in ~0.05s.
+
+**Covered:**
+
+| Test | Invariant |
+|------|-----------|
+| `test_keep_alive_zero_in_every_council_call` | `keep_alive=0` in every Ollama council call |
+| `test_judge_call_does_not_use_keep_alive_zero` | Judge uses `"5m"`, not `0` |
+| `test_council_diverse_rejects_duplicates` | Duplicate models raise `ModelPolicyError` |
+| `test_test_only_model_rejected_in_production` | `tinyllama` blocked in production |
+| `test_unknown_model_rejected` | Unknown tags rejected |
+| `test_approved_model_accepted` | Known good tags pass |
+| `test_full_session_writes_valid_json` | Session JSON matches schema |
+| `test_orchestrator_rejects_duplicate_council_in_production` | Constructor enforces diversity |
+| `test_orchestrator_allows_test_models_when_production_false` | Demo mode bypasses policy |
+| `test_nim_blocks_chinese_publishers` | 20 blocked publishers verified |
+| `test_nim_allows_western_publishers` | 6 western publishers pass |
+| `test_nim_fetch_filters_chinese_models` | Mocked catalogue: Qwen + DeepSeek filtered |
+| `test_nim_param_extraction` | 6 cases including MoE (8x7b → 56B) |
+| `test_nim_role_classification` | Boundary values at 14.9B, 15.0B, 30.0B |
+
+---
 
 ## Out of scope
 
-- The legacy Flask app under `legacy/` is not maintained.
-- Function/tool calling — this is a text-in, text-out pipeline.
-- Retrieval, memory, or multi-turn conversation — each request is independent.
+- Function / tool calling — text in, text out only
+- Multi-turn conversation — each request is independent
+- Retrieval or memory — no RAG, no vector store
+- Benchmarking / leaderboards — the output is one best answer, not a score table
+- The legacy Flask app under `legacy/` — not maintained
