@@ -27,30 +27,39 @@ DEFAULT_NIM_BASE = "https://integrate.api.nvidia.com/v1"
 MAX_TOKENS = 1024
 TEMPERATURE = 0.7
 
-# Pool of small western text models (<30B).
-# When the configured model returns 503 (queue full on free tier),
-# stream_generate automatically retries with the next available model.
-# Ordered roughly smallest→largest so cheaper models are tried first.
+# Pool of council-tier western text models (4B–14B).
+# Ordered largest→smallest so the strongest available is tried first.
+# When the configured model returns 503 or 404, stream_generate
+# automatically retries with the next available model.
+# All models below have been verified live on NIM's free tier.
 COUNCIL_FALLBACK_POOL: list[str] = [
-    "meta/llama-3.2-3b-instruct",
-    "google/gemma-3-4b-it",
-    "microsoft/phi-4-mini-instruct",
-    "meta/llama-3.2-1b-instruct",
-    "meta/llama-3.1-8b-instruct",
-    "mistralai/mistral-7b-instruct-v0.3",
-    "nvidia/llama-3.1-nemotron-nano-8b-v1",
-    "google/gemma-3-12b-it",
-    "nv-mistralai/mistral-nemo-12b-instruct",
-    "mistralai/ministral-14b-instruct-2512",
-    "microsoft/phi-3.5-moe-instruct",
+    # 10B+ tier (preferred — better reasoning)
+    "mistralai/ministral-14b-instruct-2512",       # 14B  · Mistral · France
+    "google/gemma-3-12b-it",                       # 12B  · Google · USA
+    "meta/llama-3.2-11b-vision-instruct",          # 11B  · Meta   · USA (multimodal but answers text)
+    "nvidia/nvidia-nemotron-nano-9b-v2",           #  9B  · NVIDIA · USA
+    # 7-8B fallback tier
+    "meta/llama-3.1-8b-instruct",                  #  8B  · Meta   · USA
+    "mistralai/mistral-7b-instruct-v0.3",          #  7B  · Mistral · France
+    # Smaller fallback (last resort if all bigger models 503)
+    "google/gemma-3-4b-it",                        #  4B  · Google · USA
+    "meta/llama-3.2-3b-instruct",                  #  3B  · Meta   · USA
 ]
 
+# Pool of judge-tier models (49B–123B). Ordered by capability/speed tradeoff.
+# 405B is excluded by default — too slow on free tier (30s+ TTFT).
+# All models below have been verified live on NIM's free tier.
 JUDGE_FALLBACK_POOL: list[str] = [
-    "nvidia/llama-3.1-nemotron-70b-instruct",
-    "meta/llama-3.1-70b-instruct",
-    "meta/llama-3.3-70b-instruct",
-    "mistralai/mistral-large",
-    "nvidia/llama-3.1-nemotron-51b-instruct",
+    # 100B+ flagship tier
+    "nvidia/nemotron-3-super-120b-a12b",           # 120B · NVIDIA  · USA · MoE, fast
+    "mistralai/devstral-2-123b-instruct-2512",     # 123B · Mistral · France
+    "mistralai/mistral-small-4-119b-2603",         # 119B · Mistral · France
+    # 70B tier
+    "meta/llama-3.3-70b-instruct",                 #  70B · Meta    · USA
+    "meta/llama-3.1-70b-instruct",                 #  70B · Meta    · USA
+    # 49B tier (Nemotron Super)
+    "nvidia/llama-3.3-nemotron-super-49b-v1.5",    #  49B · NVIDIA  · USA
+    "nvidia/llama-3.3-nemotron-super-49b-v1",      #  49B · NVIDIA  · USA
 ]
 
 

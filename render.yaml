@@ -12,8 +12,8 @@ services:
       - key: NVIDIA_API_KEY
         sync: false
       - key: COUNCIL_MODELS
-        value: meta/llama-3.1-8b-instruct,mistralai/mistral-7b-instruct-v0.3,google/gemma-3-4b-it
+        value: mistralai/ministral-14b-instruct-2512,google/gemma-3-12b-it,meta/llama-3.1-8b-instruct
       - key: JUDGE_MODEL
-        value: nvidia/llama-3.1-nemotron-70b-instruct
+        value: nvidia/nemotron-3-super-120b-a12b
       - key: NIM_BASE
         value: https://integrate.api.nvidia.com/v1
