@@ -373,6 +373,111 @@ async def ask(request: Request, req: AskRequest):
     return {"session_id": sid}
 
 
+class UltimateJudgeRequest(BaseModel):
+    question: str
+    council_summaries: list[dict] = []  # [{model, response}]
+    previous_verdict: str = ""
+    previous_judge_model: str = ""
+
+
+ULTIMATE_JUDGE_MODEL = "meta/llama-3.1-405b-instruct"  # 405B — the boss
+
+
+def _ultimate_judge_prompt(req: UltimateJudgeRequest) -> str:
+    """Frame the 405B as the final court of appeal."""
+    parts = [
+        "You are the ULTIMATE JUDGE — a 405-billion-parameter model called in only "
+        "when the previous reasoning is suspected to be wrong or incomplete. You are "
+        "the final court of appeal. Be definitive. Be careful. If the previous "
+        "verdict is correct, confirm it crisply. If it's wrong, say so plainly and "
+        "issue the correct ruling.",
+        "",
+        f"Original question: {req.question}",
+        "",
+        "Council answers:",
+    ]
+    for i, c in enumerate(req.council_summaries, 1):
+        parts.append(f"  Member {i} ({c.get('model', '?')}): {c.get('response', '')}")
+    parts.append("")
+    parts.append(f"Previous Judge ({req.previous_judge_model}) ruled:")
+    parts.append(req.previous_verdict)
+    parts.append("")
+    parts.append("Now you, the Ultimate Judge: review everything above and issue your final answer.")
+    parts.append("Begin with VERDICT: then explain in 2-4 sentences. No hedging.")
+    return "\n".join(parts)
+
+
+@app.post("/ultimate-judge")
+@limiter.limit("1/5minutes")
+async def ultimate_judge(request: Request, req: UltimateJudgeRequest):
+    """Summon the 405B — strictly rate-limited.
+    Returns a session_id; subscribe to /stream/{sid} for the verdict."""
+    if not req.question.strip():
+        raise HTTPException(400, "empty question")
+
+    client_id = _get_client_id(request)
+    client_ip = (request.client.host if request.client else "unknown")
+
+    sid: str = "ult-" + uuid.uuid4().hex[:12]
+    queue: asyncio.Queue = asyncio.Queue()
+    SESSIONS[sid] = queue
+
+    asyncio.create_task(_run_ultimate_judge(sid, req, queue, client_id, client_ip))
+    return {"session_id": sid, "model": ULTIMATE_JUDGE_MODEL}
+
+
+async def _run_ultimate_judge(
+    sid: str,
+    req: UltimateJudgeRequest,
+    queue: asyncio.Queue,
+    client_id: str,
+    client_ip: str,
+) -> None:
+    """Stream the 405B's verdict — no fallback, no auto-retry on 503.
+    If the boss is busy, the user is told to come back later."""
+    from council import nim_client
+
+    await _emit(queue, "ultimate_start", {"model": ULTIMATE_JUDGE_MODEL})
+
+    prompt = _ultimate_judge_prompt(req)
+    chunks: list[str] = []
+    tokens = 0
+    t0 = time.perf_counter()
+
+    try:
+        # No fallback pool — defeats the whole "summon the boss" framing.
+        # If 405B is queue-full, surface the error so the user can retry.
+        async for text, raw in nim_client._stream_once(
+            ULTIMATE_JUDGE_MODEL,
+            prompt,
+            os.environ.get("NVIDIA_API_KEY", ""),
+            os.environ.get("NIM_BASE", "https://integrate.api.nvidia.com/v1").rstrip("/"),
+        ):
+            if text:
+                chunks.append(text)
+                await _emit(queue, "ultimate_chunk", {"text": text})
+            if raw.get("done"):
+                tokens = int(raw.get("eval_count", 0))
+        latency = round(time.perf_counter() - t0, 2)
+
+        await _emit(queue, "ultimate_done", {
+            "latency": latency,
+            "tokens":  tokens,
+            "model":   ULTIMATE_JUDGE_MODEL,
+        })
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 503:
+            await _emit(queue, "error", {
+                "message": "The Ultimate Judge is busy on NVIDIA's free tier. Try again in a minute."
+            })
+        else:
+            await _emit(queue, "error", {"message": f"Ultimate Judge error: {e}"})
+    except Exception as e:
+        await _emit(queue, "error", {"message": f"{type(e).__name__}: {e}"})
+    finally:
+        await queue.put(None)
+
+
 @app.get("/stream/{sid}")
 async def stream(sid: str):
     queue = SESSIONS.get(sid)
