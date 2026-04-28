@@ -8,3 +8,5 @@ results/*.json
 venv/
 .pytest_cache/
 .claude/
+history.db
+history.db-journal

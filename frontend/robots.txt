@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://vishakadatta.github.io/ModelCouncil/sitemap.xml

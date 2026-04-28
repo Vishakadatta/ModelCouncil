@@ -3,25 +3,62 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>model-council</title>
+
+<!-- ─── SEO ──────────────────────────────────────────────────────────────── -->
+<title>Model Council — AI council in your browser, no install, free NVIDIA GPU</title>
+<meta name="description" content="Model Council: an AI council in your browser. 3 small LLMs answer your question in parallel, a 70B judge reviews them. Free NVIDIA NIM API. No install, no signup, no GPU." />
+<meta name="keywords" content="model council, AI council, LLM, multi-agent AI, council of models, LLM judge, NVIDIA NIM, free GPU, llama, mistral, gemma, nemotron, ensemble AI, AI orchestration, browser AI" />
+<meta name="author" content="Vishaka Datta J Hebbar" />
+<link rel="canonical" href="https://vishakadatta.github.io/ModelCouncil/" />
+
+<!-- Open Graph -->
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://vishakadatta.github.io/ModelCouncil/" />
+<meta property="og:title" content="Model Council — AI council in your browser" />
+<meta property="og:description" content="3 small LLMs debate, a 70B judge decides. Free NVIDIA GPU, no install. Try it in your browser." />
+<meta property="og:image" content="https://vishakadatta.github.io/ModelCouncil/og.png" />
+
+<!-- Twitter Card -->
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Model Council — AI council in your browser" />
+<meta name="twitter:description" content="3 small LLMs debate, a 70B judge decides. Free NVIDIA GPU, no install." />
+
+<!-- JSON-LD structured data — helps Google understand what this is -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Model Council",
+  "url": "https://vishakadatta.github.io/ModelCouncil/",
+  "description": "An AI council in your browser. 3 small LLMs answer your question in parallel; a 70B judge reviews their answers and delivers a final verdict.",
+  "applicationCategory": "ArtificialIntelligenceApplication",
+  "operatingSystem": "Any (browser-based)",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "author": { "@type": "Person", "name": "Vishaka Datta J Hebbar" }
+}
+</script>
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+
 <style>
   :root {
     --bg: #0a0a0a;
-    --surface: #111111;
+    --surface: #111;
+    --surface-2: #161616;
     --border: #2a2a2a;
     --border-active: #f5a623;
     --amber: #f5a623;
+    --green: #44ff88;
+    --green-soft: rgba(68, 255, 136, 0.15);
+    --red: #ff4444;
     --text: #f0f0f0;
-    --text-dim: #666666;
-    --error: #ff4444;
-    --success: #44ff88;
-    --mono: 'IBM Plex Mono', ui-monospace, 'Space Mono', monospace;
+    --text-dim: #888;
+    --text-faint: #555;
+    --mono: 'IBM Plex Mono', ui-monospace, monospace;
     --sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
   }
-
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
   body {
@@ -32,10 +69,10 @@
     line-height: 1.5;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    min-height: 100vh;
   }
 
-  /* ------------------------------ Top bar ------------------------------ */
+  /* ─── Header ───────────────────────────────────────────────────────── */
   header {
     display: flex;
     align-items: center;
@@ -49,7 +86,6 @@
     font-family: var(--mono);
     font-weight: 700;
     font-size: 15px;
-    letter-spacing: 0.02em;
     text-transform: lowercase;
   }
   .brand .slash { color: var(--amber); }
@@ -57,427 +93,522 @@
     font-family: var(--mono);
     font-size: 11px;
     color: var(--text-dim);
-    letter-spacing: 0.04em;
     text-transform: uppercase;
+    letter-spacing: 0.04em;
     display: flex;
     gap: 18px;
     align-items: center;
   }
-  .config .k { color: var(--text-dim); }
   .config .v { color: var(--text); }
   .status-dot {
     display: inline-block;
     width: 8px; height: 8px;
     border-radius: 50%;
-    background: var(--text-dim);
+    background: var(--text-faint);
     margin-right: 8px;
+    transition: background 0.2s;
   }
-  .status-dot.ok { background: var(--success); animation: pulse 2s infinite ease-in-out; }
-  .status-dot.err { background: var(--error); }
-
+  .status-dot.ok  { background: var(--green); animation: pulse 2s infinite ease-in-out; }
+  .status-dot.err { background: var(--red); }
   @keyframes pulse {
-    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(68,255,136,0.4); }
-    50%      { opacity: 0.6; box-shadow: 0 0 0 6px rgba(68,255,136,0); }
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.5; }
   }
 
-  /* ------------------------------ Main --------------------------------- */
-  main {
-    flex: 1 1 auto;
-    display: grid;
-    grid-template-columns: 1fr 280px;
-    min-height: 0;
-  }
+  /* ─── Main ─────────────────────────────────────────────────────────── */
+  main { flex: 1 1 auto; padding: 24px; max-width: 1200px; width: 100%; margin: 0 auto; }
 
-  .stage {
-    padding: 22px;
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-    min-height: 0;
-    overflow: hidden;
-  }
-
-  /* Input */
   .input-row {
     display: flex;
-    gap: 0;
-    align-items: stretch;
-    border: 1px solid var(--border);
-    background: var(--surface);
+    gap: 10px;
+    margin-bottom: 22px;
   }
-  .input-row input {
+  textarea {
     flex: 1;
-    background: transparent;
-    border: 0;
-    outline: 0;
+    background: var(--surface);
     color: var(--text);
-    font-family: var(--mono);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 12px 14px;
+    font-family: var(--sans);
     font-size: 14px;
-    padding: 14px 16px;
+    resize: none;
+    min-height: 56px;
+    max-height: 200px;
+    outline: none;
+    transition: border 0.15s;
   }
-  .input-row input::placeholder { color: var(--text-dim); }
-  .input-row button {
+  textarea:focus { border-color: var(--amber); }
+  button.ask {
+    background: var(--amber);
+    color: #000;
+    border: none;
+    border-radius: 4px;
+    padding: 0 22px;
     font-family: var(--mono);
     font-weight: 700;
     font-size: 13px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    background: var(--amber);
-    color: #000;
-    border: 0;
-    padding: 0 22px;
+    letter-spacing: 0.06em;
     cursor: pointer;
-    transition: background 120ms linear;
+    transition: opacity 0.15s;
   }
-  .input-row button:hover:not(:disabled) { background: #ffbf4d; }
-  .input-row button:disabled { background: #444; color: #222; cursor: not-allowed; }
+  button.ask:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.ask:hover:not(:disabled) { opacity: 0.9; }
 
-  /* Council panels */
-  .council {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 14px;
-    flex: 1 1 auto;
-    min-height: 0;
-  }
-  @media (max-width: 1100px) {
-    .council { grid-template-columns: 1fr; }
-  }
-
-  .panel {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    transition: border-color 200ms linear;
-  }
-  .panel.active {
-    border-left-color: var(--amber);
-    animation: panel-pulse 1.6s infinite ease-in-out;
-  }
-  .panel.done { border-left-color: var(--success); animation: none; }
-  .panel.err { border-left-color: var(--error); animation: none; }
-
-  @keyframes panel-pulse {
-    0%, 100% { box-shadow: inset 3px 0 0 0 var(--amber), 0 0 0 0 rgba(245,166,35,0.0); }
-    50%      { box-shadow: inset 3px 0 0 0 var(--amber), 0 0 0 2px rgba(245,166,35,0.25); }
-  }
-
-  .panel-head {
+  .err-banner {
+    display: none;
+    background: rgba(255, 68, 68, 0.1);
+    border: 1px solid var(--red);
+    color: var(--red);
     padding: 10px 14px;
-    border-bottom: 1px solid var(--border);
+    border-radius: 4px;
+    margin-bottom: 16px;
     font-family: var(--mono);
     font-size: 12px;
-    letter-spacing: 0.04em;
+  }
+  .err-banner.show { display: block; }
+
+  .section-label {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text-dim);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin: 18px 0 10px;
+  }
+
+  /* ─── Council cards (compact, expandable on click) ────────────────── */
+  .council-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+  @media (max-width: 720px) {
+    .council-grid { grid-template-columns: 1fr; }
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: all 0.18s;
+    position: relative;
+  }
+  .card:hover {
+    border-color: var(--amber);
+    background: var(--surface-2);
+  }
+  .card.idle      { opacity: 0.6; cursor: default; }
+  .card.streaming { border-color: var(--amber); }
+  .card.streaming::after {
+    content: '';
+    position: absolute;
+    top: 0; right: 0; bottom: 0; left: 0;
+    border-radius: 6px;
+    border: 1px solid var(--amber);
+    animation: streamPulse 1.4s infinite;
+    pointer-events: none;
+  }
+  .card.done {
+    border-color: var(--green);
+    background: linear-gradient(180deg, var(--surface-2), var(--surface));
+  }
+  @keyframes streamPulse {
+    0%, 100% { opacity: 0.4; }
+    50%      { opacity: 1; }
+  }
+
+  .card-head {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    gap: 8px;
+    justify-content: space-between;
+    margin-bottom: 8px;
   }
-  .panel-head .model { color: var(--text); font-weight: 700; }
-  .panel-head .origin { color: var(--text-dim); }
-  .panel-head .flag { font-size: 14px; }
-
-  .panel-body {
-    flex: 1 1 auto;
-    padding: 14px;
-    overflow-y: auto;
-    font-family: var(--sans);
-    font-size: 13.5px;
-    line-height: 1.6;
-    white-space: pre-wrap;
-    word-wrap: break-word;
+  .card-tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  .card-status {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    padding: 2px 7px;
+    border-radius: 99px;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+  .card.streaming .card-status { color: var(--amber); border-color: var(--amber); }
+  .card.done      .card-status { color: var(--green); border-color: var(--green); background: var(--green-soft); }
+  .card-model {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
     color: var(--text);
+    word-break: break-all;
+    margin-bottom: 6px;
   }
-  .panel-body.idle { color: var(--text-dim); font-family: var(--mono); font-size: 11px; }
+  .card-foot {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text-faint);
+  }
+  .card-hint {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-top: 6px;
+  }
+  .card.done .card-hint { color: var(--text-dim); }
 
-  .panel-foot {
-    padding: 8px 14px;
-    border-top: 1px solid var(--border);
+  /* ─── Final Verdict (prominent) ───────────────────────────────────── */
+  .verdict {
+    background: var(--surface);
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 22px;
+    margin-top: 18px;
+    transition: all 0.25s;
+  }
+  .verdict.streaming {
+    border-color: var(--amber);
+    box-shadow: 0 0 0 2px rgba(245, 166, 35, 0.1);
+  }
+  .verdict.done {
+    border-color: var(--green);
+    box-shadow: 0 0 0 2px var(--green-soft);
+  }
+  .verdict-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .verdict-title {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+  }
+  .verdict.idle .verdict-title    { color: var(--text-dim); }
+  .verdict.streaming .verdict-title { color: var(--amber); }
+  .verdict.done .verdict-title    { color: var(--green); }
+  .verdict-sub {
     font-family: var(--mono);
     font-size: 11px;
     color: var(--text-dim);
-    min-height: 28px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
   }
-  .panel.active .panel-foot::before {
-    content: '●';
-    color: var(--amber);
-    animation: blink 0.8s infinite steps(2);
-  }
-  @keyframes blink { 50% { opacity: 0.2; } }
-
-  /* Judge panel */
-  .judge {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-left: 5px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    max-height: 40vh;
-    min-height: 140px;
-    transform: translateY(10px);
-    opacity: 0;
-    transition: transform 300ms ease-out, opacity 300ms ease-out, border-color 200ms linear;
-    pointer-events: none;
-  }
-  .judge.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
-  .judge.active { border-left-color: var(--amber); }
-  .judge.done   { border-left-color: var(--amber); box-shadow: 0 0 0 1px rgba(245,166,35,0.15); }
-
-  .judge-head {
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border);
+  .verdict-body {
     font-family: var(--mono);
-    font-size: 12px;
-    letter-spacing: 0.12em;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .judge-head .tag {
-    color: var(--amber);
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.22em;
-  }
-  .judge-head .meta { color: var(--text-dim); }
-  .judge-body {
-    flex: 1 1 auto;
-    padding: 16px;
-    overflow-y: auto;
-    font-family: var(--sans);
-    font-size: 14.5px;
+    font-size: 13px;
     line-height: 1.65;
     white-space: pre-wrap;
     word-wrap: break-word;
+    color: var(--text);
+    max-height: 60vh;
+    overflow-y: auto;
+    padding-right: 8px;
   }
-  .judge-foot {
-    padding: 8px 16px;
-    border-top: 1px solid var(--border);
+  .verdict-body:empty::before {
+    content: '— no verdict yet —';
+    color: var(--text-faint);
+    font-style: italic;
+  }
+  .verdict-foot {
     font-family: var(--mono);
     font-size: 11px;
     color: var(--text-dim);
-    min-height: 28px;
-    display: flex;
-    align-items: center;
+    margin-top: 10px;
   }
 
-  /* Sidebar — collapsible, hidden by default */
-  main {
-    transition: grid-template-columns 220ms ease-out;
+  /* ─── Modal overlay (click any card to expand) ────────────────────── */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 100;
+    justify-content: center;
+    align-items: center;
+    padding: 24px;
+    backdrop-filter: blur(4px);
   }
-  main.nohist { grid-template-columns: 1fr 0; }
-  aside {
-    border-left: 1px solid var(--border);
+  .modal-overlay.show { display: flex; }
+  .modal {
     background: var(--surface);
+    border: 1px solid var(--border-active);
+    border-radius: 8px;
+    width: 100%;
+    max-width: 900px;
+    max-height: 90vh;
     display: flex;
     flex-direction: column;
-    min-height: 0;
     overflow: hidden;
   }
-  main.nohist aside { border-left: 0; }
-
-  .hist-toggle {
+  .modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 22px;
+    border-bottom: 1px solid var(--border);
+  }
+  .modal-title {
     font-family: var(--mono);
-    font-size: 11px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
+    font-weight: 700;
+    font-size: 14px;
+  }
+  .modal-actions { display: flex; gap: 8px; }
+  .modal-btn {
     background: transparent;
-    color: var(--text-dim);
+    color: var(--text);
     border: 1px solid var(--border);
+    border-radius: 4px;
     padding: 6px 12px;
-    cursor: pointer;
-    transition: color 120ms linear, border-color 120ms linear;
-  }
-  .hist-toggle:hover { color: var(--amber); border-color: var(--amber); }
-  .hist-toggle.open { color: var(--amber); border-color: var(--amber); }
-  aside .side-head {
-    padding: 14px 16px;
-    border-bottom: 1px solid var(--border);
     font-family: var(--mono);
     font-size: 11px;
-    letter-spacing: 0.18em;
     text-transform: uppercase;
-    color: var(--text-dim);
-  }
-  aside .side-list { flex: 1 1 auto; overflow-y: auto; }
-  .hitem {
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border);
+    letter-spacing: 0.08em;
     cursor: pointer;
-    transition: background 120ms linear;
+    transition: all 0.15s;
   }
-  .hitem:hover { background: #181818; }
+  .modal-btn:hover { border-color: var(--amber); color: var(--amber); }
+  .modal-btn.copied { color: var(--green); border-color: var(--green); }
+  .modal-body {
+    padding: 22px;
+    overflow-y: auto;
+    font-family: var(--mono);
+    font-size: 14px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+
+  /* ─── History ─────────────────────────────────────────────────────── */
+  .history-section {
+    margin-top: 28px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+  }
+  .history-list { display: flex; flex-direction: column; gap: 6px; }
+  .hitem {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 14px;
+    cursor: pointer;
+    transition: border 0.15s;
+  }
+  .hitem:hover { border-color: var(--amber); }
   .hitem .q {
     font-size: 13px;
     color: var(--text);
-    line-height: 1.4;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
+    margin-bottom: 4px;
     overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .hitem .meta {
     font-family: var(--mono);
     font-size: 10.5px;
     color: var(--text-dim);
-    margin-top: 6px;
-    letter-spacing: 0.04em;
   }
-  .hitem.empty { color: var(--text-dim); font-family: var(--mono); font-size: 11px; }
+  .hitem.empty {
+    color: var(--text-faint);
+    cursor: default;
+    text-align: center;
+    border-style: dashed;
+  }
+  .hitem.empty:hover { border-color: var(--border); }
 
-  /* Bottom status */
+  /* ─── Footer ──────────────────────────────────────────────────────── */
   footer {
     flex: 0 0 auto;
-    padding: 8px 22px;
+    padding: 14px 22px;
     border-top: 1px solid var(--border);
-    background: var(--surface);
     font-family: var(--mono);
     font-size: 11px;
     color: var(--text-dim);
-    letter-spacing: 0.06em;
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
+    display: flex;
+    justify-content: space-between;
     align-items: center;
-    gap: 18px;
+    background: var(--surface);
   }
-  footer .copy { text-align: center; color: var(--text-dim); }
-  footer .right { text-align: right; }
-  footer .right { color: var(--text-dim); }
-  footer .right .kbd {
+  footer a { color: var(--text-dim); text-decoration: none; }
+  footer a:hover { color: var(--amber); }
+  .kbd {
     display: inline-block;
-    border: 1px solid var(--border);
     padding: 1px 5px;
-    margin: 0 2px;
-    border-radius: 2px;
-    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: var(--surface-2);
+    font-size: 10px;
   }
-
-  /* Error banner */
-  .err-banner {
-    background: var(--error);
-    color: #000;
-    font-family: var(--mono);
-    font-size: 12px;
-    padding: 8px 16px;
-    display: none;
-  }
-  .err-banner.show { display: block; }
 </style>
 </head>
 <body>
 
 <header>
   <div class="brand">model<span class="slash">/</span>council</div>
-  <div class="config" id="config">
-    <span><span class="status-dot" id="status-dot"></span><span id="status-label">…</span></span>
-    <span><span class="k">council</span> <span class="v" id="cfg-council">—</span></span>
-    <span><span class="k">judge</span> <span class="v" id="cfg-judge">—</span></span>
+  <div class="config">
+    <span><span class="status-dot" id="status-dot"></span><span id="status-label">checking…</span></span>
+    <span><span class="k">COUNCIL</span> <span class="v" id="cfg-council">—</span></span>
+    <span><span class="k">JUDGE</span> <span class="v" id="cfg-judge">—</span></span>
   </div>
 </header>
 
-<div class="err-banner" id="err-banner"></div>
+<main id="main">
 
-<main id="main" class="nohist">
-  <section class="stage">
-    <div class="input-row">
-      <input id="question" type="text" autocomplete="off"
-             placeholder="Ask the council — e.g. what caused the fall of the Roman Empire?" />
-      <button id="submit">ASK</button>
+  <div class="input-row">
+    <textarea id="question" placeholder="Ask anything — the council answers in parallel, the judge decides."></textarea>
+    <button class="ask" id="submit">ASK</button>
+  </div>
+
+  <div class="err-banner" id="err-banner"></div>
+
+  <div class="section-label">Council members</div>
+  <div class="council-grid">
+    <div class="card idle" data-panel="0">
+      <div class="card-head">
+        <span class="card-tag">Member 1</span>
+        <span class="card-status">idle</span>
+      </div>
+      <div class="card-model">—</div>
+      <div class="card-foot"></div>
+      <div class="card-hint">click to expand</div>
     </div>
-
-    <div class="council" id="council">
-      <div class="panel" data-panel="0">
-        <div class="panel-head">
-          <div class="model">—</div>
-          <div class="tag" style="font-family:var(--mono);font-size:10.5px;color:var(--text-dim);letter-spacing:0.18em">Council Member 1</div>
-        </div>
-        <div class="panel-body idle">awaiting council member</div>
-        <div class="panel-foot"></div>
+    <div class="card idle" data-panel="1">
+      <div class="card-head">
+        <span class="card-tag">Member 2</span>
+        <span class="card-status">idle</span>
       </div>
-      <div class="panel" data-panel="1">
-        <div class="panel-head">
-          <div class="model">—</div>
-          <div class="tag" style="font-family:var(--mono);font-size:10.5px;color:var(--text-dim);letter-spacing:0.18em">Council Member 2</div>
-        </div>
-        <div class="panel-body idle">awaiting council member</div>
-        <div class="panel-foot"></div>
-      </div>
-      <div class="panel" data-panel="2">
-        <div class="panel-head">
-          <div class="model">—</div>
-          <div class="tag" style="font-family:var(--mono);font-size:10.5px;color:var(--text-dim);letter-spacing:0.18em">Council Member 3</div>
-        </div>
-        <div class="panel-body idle">awaiting council member</div>
-        <div class="panel-foot"></div>
-      </div>
+      <div class="card-model">—</div>
+      <div class="card-foot"></div>
+      <div class="card-hint">click to expand</div>
     </div>
-
-    <div class="judge" id="judge">
-      <div class="judge-head">
-        <span class="tag">Synthesis</span>
-        <span class="meta" id="judge-meta">—</span>
+    <div class="card idle" data-panel="2">
+      <div class="card-head">
+        <span class="card-tag">Member 3</span>
+        <span class="card-status">idle</span>
       </div>
-      <div class="judge-body" id="judge-body"></div>
-      <div class="judge-foot" id="judge-foot"></div>
+      <div class="card-model">—</div>
+      <div class="card-foot"></div>
+      <div class="card-hint">click to expand</div>
     </div>
-  </section>
+  </div>
 
-  <aside>
-    <div class="side-head">Recent sessions</div>
-    <div class="side-list" id="history">
+  <div class="section-label">Final verdict</div>
+  <div class="verdict idle" id="verdict">
+    <div class="verdict-head">
+      <span class="verdict-title" id="verdict-title">Awaiting council…</span>
+      <span class="verdict-sub" id="verdict-sub">—</span>
+    </div>
+    <div class="verdict-body" id="verdict-body"></div>
+    <div class="verdict-foot" id="verdict-foot"></div>
+  </div>
+
+  <div class="history-section">
+    <div class="section-label">Your recent sessions <span style="color:var(--text-faint);text-transform:none;letter-spacing:0">(only visible on this browser)</span></div>
+    <div class="history-list" id="history">
       <div class="hitem empty">— no sessions yet —</div>
     </div>
-  </aside>
+  </div>
+
 </main>
 
 <footer>
   <div id="status">idle</div>
-  <div class="copy">© Vishaka Datta J Hebbar 2026</div>
-  <div class="right">
-    <button id="hist-toggle" class="hist-toggle" aria-pressed="false">History</button>
-    <span style="margin:0 10px">·</span>
-    <span class="kbd">⌘</span><span class="kbd">↵</span> / <span class="kbd">Ctrl</span><span class="kbd">↵</span> to submit
-  </div>
+  <div>© Vishaka Datta J Hebbar · <a href="https://github.com/Vishakadatta/ModelCouncil" target="_blank" rel="noopener">github</a></div>
+  <div><span class="kbd">⌘</span><span class="kbd">↵</span> / <span class="kbd">Ctrl</span><span class="kbd">↵</span> to submit</div>
 </footer>
 
+<!-- ─── Expand modal ────────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title" id="modal-title">—</div>
+      <div class="modal-actions">
+        <button class="modal-btn" id="modal-copy">COPY</button>
+        <button class="modal-btn" onclick="closeModal()">CLOSE</button>
+      </div>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
 <script>
-  /* COUNCIL_API_URL — replaced by CI for production builds.
-     Local dev: the FastAPI server is on the same origin (port 7860).
-     Production: GitHub Actions injects the Render backend URL here. */
+  /* COUNCIL_API_URL — replaced by CI for production builds. */
   window.COUNCIL_API_URL = window.COUNCIL_API_URL || "http://localhost:7860";
 </script>
 <script>
 (() => {
   const API = window.COUNCIL_API_URL;
   const $ = (id) => document.getElementById(id);
-  const panels = Array.from(document.querySelectorAll('.panel'));
-  const judge = $('judge');
-  const judgeBody = $('judge-body');
-  const judgeMeta = $('judge-meta');
-  const judgeFoot = $('judge-foot');
+
+  // ─── Per-browser client ID — privacy without login ────────────────────
+  // Generated once and stored in localStorage. Sent on every API call.
+  // Different browsers / private windows = different IDs = separate history.
+  const CLIENT_ID_KEY = 'modelcouncil:client_id';
+  function getClientId() {
+    let id = localStorage.getItem(CLIENT_ID_KEY);
+    if (!id) {
+      id = (crypto.randomUUID ? crypto.randomUUID() :
+        'cid-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10));
+      localStorage.setItem(CLIENT_ID_KEY, id);
+    }
+    return id;
+  }
+  const CLIENT_ID = getClientId();
+
+  // Convenience wrapper: every fetch carries the client_id header.
+  function api(path, init = {}) {
+    init.headers = Object.assign({}, init.headers || {}, {
+      'X-Client-ID': CLIENT_ID,
+    });
+    return fetch(`${API}${path}`, init);
+  }
+
+  // ─── DOM refs ─────────────────────────────────────────────────────────
+  const cards = Array.from(document.querySelectorAll('.card[data-panel]'));
+  const verdict = $('verdict');
+  const verdictTitle = $('verdict-title');
+  const verdictSub = $('verdict-sub');
+  const verdictBody = $('verdict-body');
+  const verdictFoot = $('verdict-foot');
   const questionEl = $('question');
   const submitBtn = $('submit');
   const statusEl = $('status');
   const errBanner = $('err-banner');
 
-  let es = null;  // active EventSource
+  // Holds the latest text for each panel + the verdict, used by the modal.
+  const panelText = ['', '', ''];
+  const panelModel = ['—', '—', '—'];
+  let verdictText = '';
+  let verdictModel = '—';
+
+  let es = null;
   let busy = false;
 
-  // ------------------------ Health + history on load -------------------
+  // ─── Health + history on load ─────────────────────────────────────────
   async function loadHealth() {
     try {
-      const r = await fetch(`${API}/health`);
+      const r = await api('/health');
       const h = await r.json();
       const dot = $('status-dot');
       const label = $('status-label');
-      if (h.status === 'ok') { dot.className = 'status-dot ok'; label.textContent = 'ollama connected'; }
-      else { dot.className = 'status-dot err'; label.textContent = h.ollama || 'degraded'; }
+      const backendName = (h.backend || 'backend').toUpperCase();
+      const conn = h.nim || h.ollama || h.status;
+      if (h.status === 'ok') {
+        dot.className = 'status-dot ok';
+        label.textContent = `${backendName} connected`;
+      } else {
+        dot.className = 'status-dot err';
+        label.textContent = `${backendName} ${conn || 'degraded'}`;
+      }
       $('cfg-council').textContent = (h.council || []).join(' · ') || '—';
       $('cfg-judge').textContent = h.judge || '—';
     } catch (e) {
@@ -488,22 +619,22 @@
 
   async function loadHistory() {
     try {
-      const r = await fetch(`${API}/history`);
+      const r = await api('/history');
       const h = await r.json();
       const list = $('history');
       if (!h.sessions || h.sessions.length === 0) {
-        list.innerHTML = '<div class="hitem empty">— no sessions yet —</div>';
+        list.innerHTML = '<div class="hitem empty">— no sessions yet on this browser —</div>';
         return;
       }
       list.innerHTML = '';
-      for (const s of h.sessions.slice(0, 5)) {
+      for (const s of h.sessions.slice(0, 10)) {
         const el = document.createElement('div');
         el.className = 'hitem';
         const ts = (s.timestamp || '').replace('T', ' ');
         const total = s.total_seconds != null ? `${s.total_seconds}s` : '';
         el.innerHTML = `
-          <div class="q">${escapeHtml(s.prompt || '(no prompt)')}</div>
-          <div class="meta">${ts} · ${total} · ${(s.council_models || []).join('+')} → ${escapeHtml(s.judge_model || '')}</div>
+          <div class="q">${esc(s.prompt || '(no prompt)')}</div>
+          <div class="meta">${esc(ts)} · ${esc(total)}</div>
         `;
         el.addEventListener('click', () => showArchived(s));
         list.appendChild(el);
@@ -511,69 +642,79 @@
     } catch (e) { /* ignore */ }
   }
 
-  function escapeHtml(s) {
+  function esc(s) {
     return String(s).replace(/[&<>"']/g, c => ({
       '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
     }[c]));
   }
 
-  function showArchived(s) {
-    if (busy) return;
-    resetPanels();
-    const council = s.data.council || [];
-    for (let i = 0; i < panels.length; i++) {
-      const p = panels[i];
-      const turn = council[i];
-      if (!turn) {
-        p.className = 'panel';
-        p.querySelector('.panel-body').className = 'panel-body idle';
-        p.querySelector('.panel-body').textContent = '—';
-        continue;
-      }
-      setHead(p, turn.model, turn.origin, flagFor(turn.origin));
-      const body = p.querySelector('.panel-body');
-      body.className = 'panel-body';
-      body.textContent = turn.response;
-      p.classList.add('done');
-      p.querySelector('.panel-foot').textContent = `↳ ${turn.latency_seconds}s — ${turn.tokens_generated} tokens`;
-    }
-    const j = s.data.judge;
-    if (j) {
-      judge.classList.add('show', 'done');
-      judge.classList.remove('active');
-      judgeMeta.textContent = j.model;
-      judgeBody.textContent = j.response;
-      judgeFoot.textContent = `↳ ${j.latency_seconds}s — ${j.tokens_generated} tokens · total ${s.data.total_seconds}s`;
-    }
-    setStatus(`viewing archived session — ${s.timestamp}`);
-  }
+  // ─── Modal ────────────────────────────────────────────────────────────
+  const modal = $('modal');
+  const modalTitle = $('modal-title');
+  const modalBody = $('modal-body');
+  const modalCopy = $('modal-copy');
 
-  function flagFor(origin='') {
-    if (origin.includes('USA')) return '🇺🇸';
-    if (origin.includes('France')) return '🇫🇷';
-    if (origin.includes('Canada')) return '🇨🇦';
-    if (origin.includes('UK')) return '🇬🇧';
-    return '🏳️';
+  function openModal(title, text) {
+    modalTitle.textContent = title;
+    modalBody.textContent = text || '— no content yet —';
+    modalCopy.textContent = 'COPY';
+    modalCopy.classList.remove('copied');
+    modal.classList.add('show');
   }
+  window.closeModal = () => modal.classList.remove('show');
 
-  // ------------------------ Panel helpers ------------------------------
-  function setHead(panelEl, model /*, origin, flag — intentionally unused */) {
-    panelEl.querySelector('.model').textContent = model || '—';
+  modalCopy.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(modalBody.textContent);
+      modalCopy.textContent = 'COPIED';
+      modalCopy.classList.add('copied');
+      setTimeout(() => {
+        modalCopy.textContent = 'COPY';
+        modalCopy.classList.remove('copied');
+      }, 1500);
+    } catch (e) { modalCopy.textContent = 'FAILED'; }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeModal();
+  });
+
+  // Click any card → modal expand
+  cards.forEach((card, idx) => {
+    card.addEventListener('click', () => {
+      if (card.classList.contains('idle')) return;
+      openModal(`Council Member ${idx + 1} — ${panelModel[idx]}`, panelText[idx]);
+    });
+  });
+
+  verdict.addEventListener('click', () => {
+    if (verdict.classList.contains('idle')) return;
+    openModal(`Final Verdict — ${verdictModel}`, verdictText);
+  });
+
+  // ─── Panel helpers ────────────────────────────────────────────────────
+  function setCardStatus(card, statusText, klass) {
+    card.classList.remove('idle', 'streaming', 'done');
+    if (klass) card.classList.add(klass);
+    card.querySelector('.card-status').textContent = statusText;
   }
 
   function resetPanels() {
-    for (const p of panels) {
-      p.className = 'panel';
-      const b = p.querySelector('.panel-body');
-      b.className = 'panel-body idle';
-      b.textContent = 'awaiting council member';
-      p.querySelector('.panel-foot').textContent = '';
-      setHead(p, '—', '', '');
-    }
-    judge.classList.remove('show', 'active', 'done');
-    judgeBody.textContent = '';
-    judgeFoot.textContent = '';
-    judgeMeta.textContent = '—';
+    cards.forEach((c, i) => {
+      setCardStatus(c, 'idle', 'idle');
+      c.querySelector('.card-model').textContent = '—';
+      c.querySelector('.card-foot').textContent = '';
+      panelText[i] = '';
+      panelModel[i] = '—';
+    });
+    verdict.classList.remove('streaming', 'done');
+    verdict.classList.add('idle');
+    verdictTitle.textContent = 'Awaiting council…';
+    verdictSub.textContent = '—';
+    verdictBody.textContent = '';
+    verdictFoot.textContent = '';
+    verdictText = '';
+    verdictModel = '—';
     errBanner.classList.remove('show');
     errBanner.textContent = '';
   }
@@ -586,7 +727,39 @@
     submitBtn.textContent = b ? 'WORKING…' : 'ASK';
   }
 
-  // ------------------------ Submit flow --------------------------------
+  function showError(msg) {
+    errBanner.textContent = 'ERROR · ' + msg;
+    errBanner.classList.add('show');
+  }
+
+  function showArchived(s) {
+    if (busy) return;
+    resetPanels();
+    const council = s.data.council || [];
+    cards.forEach((c, i) => {
+      const t = council[i];
+      if (!t) return;
+      c.querySelector('.card-model').textContent = t.model;
+      c.querySelector('.card-foot').textContent = `↳ ${t.latency_seconds}s · ${t.tokens_generated} tokens`;
+      setCardStatus(c, 'archived', 'done');
+      panelText[i] = t.response;
+      panelModel[i] = t.model;
+    });
+    const j = s.data.judge;
+    if (j) {
+      verdict.classList.remove('idle', 'streaming');
+      verdict.classList.add('done');
+      verdictTitle.textContent = 'FINAL VERDICT';
+      verdictSub.textContent = j.model;
+      verdictBody.textContent = j.response;
+      verdictFoot.textContent = `↳ ${j.latency_seconds}s · ${j.tokens_generated} tokens · total ${s.data.total_seconds}s`;
+      verdictText = j.response;
+      verdictModel = j.model;
+    }
+    setStatus(`viewing archived session — ${s.timestamp}`);
+  }
+
+  // ─── Submit flow ──────────────────────────────────────────────────────
   async function ask() {
     if (busy) return;
     const q = questionEl.value.trim();
@@ -598,14 +771,16 @@
 
     let sid;
     try {
-      const r = await fetch(`${API}/ask`, {
+      const r = await api('/ask', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({question: q}),
       });
       if (!r.ok) {
-        const t = await r.text();
-        throw new Error(`POST /ask ${r.status}: ${t}`);
+        let msg = `POST /ask ${r.status}`;
+        if (r.status === 429) msg = 'Rate limit — max 10 questions per minute. Try again in a moment.';
+        else { try { msg = (await r.text()) || msg; } catch {} }
+        throw new Error(msg);
       }
       const j = await r.json();
       sid = j.session_id;
@@ -625,55 +800,60 @@
 
     es.addEventListener('council_start', (ev) => {
       const d = JSON.parse(ev.data);
-      const p = panels[d.panel];
-      if (!p) return;
-      setHead(p, d.model, d.origin, d.flag);
-      p.classList.remove('done', 'err');
-      p.classList.add('active');
-      const body = p.querySelector('.panel-body');
-      body.className = 'panel-body';
-      body.textContent = '';
-      p.querySelector('.panel-foot').textContent = 'streaming…';
+      const c = cards[d.panel];
+      if (!c) return;
+      c.querySelector('.card-model').textContent = d.model;
+      c.querySelector('.card-foot').textContent = 'thinking…';
+      setCardStatus(c, 'streaming', 'streaming');
+      panelText[d.panel] = '';
+      panelModel[d.panel] = d.model;
     });
 
     es.addEventListener('council_chunk', (ev) => {
       const d = JSON.parse(ev.data);
-      const p = panels[d.panel];
-      if (!p) return;
-      const body = p.querySelector('.panel-body');
-      body.textContent += d.text;
-      body.scrollTop = body.scrollHeight;
+      panelText[d.panel] = (panelText[d.panel] || '') + d.text;
+      // Update card foot with token count preview
+      const c = cards[d.panel];
+      if (c) {
+        const wc = panelText[d.panel].length;
+        c.querySelector('.card-foot').textContent = `streaming · ${wc} chars`;
+      }
     });
 
     es.addEventListener('council_done', (ev) => {
       const d = JSON.parse(ev.data);
-      const p = panels[d.panel];
-      if (!p) return;
-      p.classList.remove('active');
-      p.classList.add('done');
-      p.querySelector('.panel-foot').textContent = `↳ ${d.latency}s — ${d.tokens} tokens`;
+      const c = cards[d.panel];
+      if (!c) return;
+      setCardStatus(c, 'done', 'done');
+      c.querySelector('.card-foot').textContent = `↳ ${d.latency}s · ${d.tokens} tokens · click to read`;
     });
 
     es.addEventListener('judge_start', (ev) => {
       const d = JSON.parse(ev.data);
-      judge.classList.add('show', 'active');
-      judgeMeta.textContent = d.model;
-      judgeBody.textContent = '';
-      judgeFoot.textContent = 'synthesizing…';
+      verdict.classList.remove('idle', 'done');
+      verdict.classList.add('streaming');
+      verdictTitle.textContent = 'STILL DELIBERATING…';
+      verdictSub.textContent = d.model;
+      verdictBody.textContent = '';
+      verdictFoot.textContent = 'judge is reasoning…';
+      verdictText = '';
+      verdictModel = d.model;
       setStatus('synthesis in progress…');
     });
 
     es.addEventListener('judge_chunk', (ev) => {
       const d = JSON.parse(ev.data);
-      judgeBody.textContent += d.text;
-      judgeBody.scrollTop = judgeBody.scrollHeight;
+      verdictText += d.text;
+      verdictBody.textContent = verdictText;
+      verdictBody.scrollTop = verdictBody.scrollHeight;
     });
 
     es.addEventListener('judge_done', (ev) => {
       const d = JSON.parse(ev.data);
-      judge.classList.remove('active');
-      judge.classList.add('done');
-      judgeFoot.textContent = `↳ ${d.latency}s — ${d.tokens} tokens · total ${d.total_seconds}s`;
+      verdict.classList.remove('streaming');
+      verdict.classList.add('done');
+      verdictTitle.textContent = 'FINAL VERDICT ✓';
+      verdictFoot.textContent = `↳ ${d.latency}s · ${d.tokens} tokens · total ${d.total_seconds}s · click to expand`;
       setStatus(`done in ${d.total_seconds}s`);
       setBusy(false);
       es.close(); es = null;
@@ -681,7 +861,6 @@
     });
 
     es.addEventListener('error', (ev) => {
-      // Two kinds: our server-sent "error" events, OR transport errors.
       let msg = 'stream error';
       try {
         const d = JSON.parse(ev.data || '{}');
@@ -694,25 +873,10 @@
     });
   }
 
-  function showError(msg) {
-    errBanner.textContent = 'ERROR · ' + msg;
-    errBanner.classList.add('show');
-  }
-
-  // ------------------------ Wire up ------------------------------------
+  // ─── Wire up ──────────────────────────────────────────────────────────
   submitBtn.addEventListener('click', ask);
   questionEl.addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); ask(); }
-  });
-
-  const histToggle = $('hist-toggle');
-  const mainEl = $('main');
-  histToggle.addEventListener('click', () => {
-    const open = mainEl.classList.toggle('nohist') === false;
-    histToggle.classList.toggle('open', open);
-    histToggle.setAttribute('aria-pressed', String(open));
-    histToggle.textContent = open ? 'Hide History' : 'History';
-    if (open) loadHistory();
   });
 
   loadHealth();

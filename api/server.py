@@ -41,6 +41,68 @@ from council.orchestrator import (
 ROOT        = Path(__file__).resolve().parent.parent
 FRONTEND    = ROOT / "frontend" / "index.html"
 RESULTS_DIR = ROOT / "results"
+HISTORY_DB  = ROOT / "history.db"
+
+# Admin token — set ADMIN_TOKEN in env to enable /admin/* routes.
+# If unset, admin routes return 403.
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
+
+
+# ---------------------------------------------------------------------------
+# Admin SQLite store — every session, every client. Read-only for users.
+# ---------------------------------------------------------------------------
+import sqlite3
+
+def _init_admin_db() -> None:
+    """Create the sessions table if it doesn't exist. Idempotent."""
+    with sqlite3.connect(HISTORY_DB) as db:
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id    TEXT    NOT NULL,
+                timestamp    TEXT    NOT NULL,
+                prompt       TEXT    NOT NULL,
+                council_models TEXT,
+                judge_model    TEXT,
+                total_seconds  REAL,
+                file_path    TEXT,
+                ip           TEXT
+            )
+        """)
+        db.execute("CREATE INDEX IF NOT EXISTS idx_client ON sessions(client_id)")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_ts ON sessions(timestamp DESC)")
+
+
+def _record_session(
+    client_id: str,
+    session: "Session",
+    file_path: str,
+    ip: str,
+) -> None:
+    """Append a row to the admin DB. Best-effort — failures are logged not raised."""
+    try:
+        with sqlite3.connect(HISTORY_DB) as db:
+            db.execute(
+                """INSERT INTO sessions
+                   (client_id, timestamp, prompt, council_models, judge_model,
+                    total_seconds, file_path, ip)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    client_id,
+                    session.timestamp,
+                    session.prompt,
+                    ",".join(t.model for t in session.council),
+                    session.judge.model if session.judge else None,
+                    session.total_seconds,
+                    file_path,
+                    ip,
+                ),
+            )
+    except sqlite3.Error:
+        pass  # best effort
+
+
+_init_admin_db()
 
 FLAGS = {
     "USA":    "🇺🇸",
@@ -207,17 +269,39 @@ async def health():
     }
 
 
+def _get_client_id(request: Request) -> str:
+    """Read X-Client-ID header. Returns 'anon' if missing — never blocks."""
+    cid = request.headers.get("x-client-id", "").strip()
+    return cid if cid else "anon"
+
+
 @app.get("/history")
-async def history():
-    if not RESULTS_DIR.exists():
+async def history(request: Request):
+    """Return last 10 sessions for THIS client only.
+    Filters by X-Client-ID header. 'anon' clients see nothing (privacy)."""
+    client_id = _get_client_id(request)
+    if client_id == "anon":
         return {"sessions": []}
-    files = sorted(
-        RESULTS_DIR.glob("session_*.json"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )[:10]
+
+    # Look up the file paths owned by this client_id from the admin DB.
+    try:
+        with sqlite3.connect(HISTORY_DB) as db:
+            rows = db.execute(
+                """SELECT file_path FROM sessions
+                   WHERE client_id = ?
+                   ORDER BY id DESC LIMIT 10""",
+                (client_id,),
+            ).fetchall()
+    except sqlite3.Error:
+        rows = []
+
     out = []
-    for f in files:
+    for (fp,) in rows:
+        if not fp:
+            continue
+        f = RESULTS_DIR / fp
+        if not f.exists():
+            continue
         try:
             data = json.loads(f.read_text())
         except (json.JSONDecodeError, OSError):
@@ -235,12 +319,39 @@ async def history():
     return {"sessions": out}
 
 
+@app.get("/admin/history")
+async def admin_history(request: Request, token: str = ""):
+    """Admin-only — see ALL sessions across all clients.
+    Auth: pass ?token=... matching ADMIN_TOKEN env var."""
+    if not ADMIN_TOKEN:
+        raise HTTPException(403, "Admin route disabled (ADMIN_TOKEN not set)")
+    if token != ADMIN_TOKEN:
+        raise HTTPException(403, "Invalid admin token")
+
+    try:
+        with sqlite3.connect(HISTORY_DB) as db:
+            db.row_factory = sqlite3.Row
+            rows = db.execute(
+                """SELECT id, client_id, timestamp, prompt, council_models,
+                          judge_model, total_seconds, file_path, ip
+                   FROM sessions
+                   ORDER BY id DESC LIMIT 200"""
+            ).fetchall()
+    except sqlite3.Error as e:
+        raise HTTPException(500, f"DB error: {e}")
+
+    return {"sessions": [dict(r) for r in rows], "count": len(rows)}
+
+
 @app.post("/ask")
 @limiter.limit("10/minute")
 async def ask(request: Request, req: AskRequest):
     question = req.question.strip()
     if not question:
         raise HTTPException(400, "empty question")
+
+    client_id = _get_client_id(request)
+    client_ip = (request.client.host if request.client else "unknown")
 
     council, judge, base, production = _resolve_env()
 
@@ -258,7 +369,7 @@ async def ask(request: Request, req: AskRequest):
     sid: str = uuid.uuid4().hex[:12]
     queue: asyncio.Queue = asyncio.Queue()
     SESSIONS[sid] = queue
-    asyncio.create_task(_run_session(sid, question, orch, queue))
+    asyncio.create_task(_run_session(sid, question, orch, queue, client_id, client_ip))
     return {"session_id": sid}
 
 
@@ -385,6 +496,8 @@ async def _run_session(
     question: str,
     orch: Orchestrator,
     queue: asyncio.Queue,
+    client_id: str = "anon",
+    client_ip: str = "unknown",
 ) -> None:
     try:
         async with httpx.AsyncClient(timeout=600.0) as client:
@@ -465,6 +578,10 @@ async def _run_session(
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         out   = RESULTS_DIR / f"session_{stamp}.json"
         out.write_text(json.dumps(session.to_dict(), indent=2))
+
+        # Record in admin DB so /history (per-client) and /admin/history (all)
+        # can find it. File on disk is the source of truth; DB is the index.
+        _record_session(client_id, session, out.name, client_ip)
 
         await _emit(queue, "judge_done", {
             "latency":       judge_latency,
