@@ -388,6 +388,181 @@
     word-wrap: break-word;
   }
 
+  /* ─── ULTIMATE JUDGE — the scary 405B button ──────────────────────── */
+  .ultimate-section {
+    display: none;
+    margin-top: 22px;
+    padding-top: 22px;
+    border-top: 1px dashed #5a1a1a;
+    text-align: center;
+  }
+  .ultimate-section.show { display: block; }
+
+  .ultimate-warning {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: #d4564a;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  .summon-btn {
+    background: linear-gradient(180deg, #1a0606, #0a0303);
+    color: #ff5b3d;
+    border: 1px solid #5a1a1a;
+    border-radius: 4px;
+    padding: 14px 28px;
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .summon-btn::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(circle at 50% 100%, rgba(255, 91, 61, 0.15), transparent 60%);
+    pointer-events: none;
+  }
+  .summon-btn:hover {
+    color: #ff8866;
+    border-color: #d4564a;
+    box-shadow: 0 0 24px rgba(255, 91, 61, 0.3);
+  }
+  .summon-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    border-color: var(--border);
+    color: var(--text-faint);
+    box-shadow: none;
+  }
+  .summon-sub {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-faint);
+    margin-top: 8px;
+    letter-spacing: 0.08em;
+  }
+
+  /* Scary confirmation modal */
+  .danger-modal .modal {
+    border: 2px solid #5a1a1a;
+    box-shadow: 0 0 40px rgba(255, 91, 61, 0.2);
+    max-width: 560px;
+  }
+  .danger-modal .modal-head {
+    border-bottom-color: #5a1a1a;
+    background: linear-gradient(180deg, #160606, transparent);
+  }
+  .danger-modal .modal-title { color: #ff5b3d; letter-spacing: 0.1em; }
+  .danger-modal .modal-body {
+    font-family: var(--sans);
+    font-size: 14px;
+    white-space: normal;
+  }
+  .danger-modal .modal-body strong { color: #ff8866; }
+  .danger-confirm {
+    background: #5a1a1a;
+    color: #fff;
+    border: 1px solid #d4564a;
+    font-weight: 700;
+  }
+  .danger-confirm:hover { background: #7a2222; color: #fff !important; border-color: #ff5b3d !important; }
+
+  /* Ultimate verdict panel — appears after summon */
+  .ultimate-panel {
+    display: none;
+    margin-top: 22px;
+    padding: 22px;
+    border-radius: 8px;
+    background: linear-gradient(180deg, #0a0303, #160606);
+    border: 2px solid #5a1a1a;
+    position: relative;
+    overflow: hidden;
+  }
+  .ultimate-panel.show { display: block; }
+  .ultimate-panel.streaming {
+    border-color: #ff5b3d;
+    box-shadow: 0 0 60px rgba(255, 91, 61, 0.25), inset 0 0 60px rgba(255, 91, 61, 0.05);
+    animation: ultimateGlow 2s infinite ease-in-out;
+  }
+  .ultimate-panel.done {
+    border-color: #d4af37;
+    box-shadow: 0 0 40px rgba(212, 175, 55, 0.25);
+  }
+  @keyframes ultimateGlow {
+    0%, 100% { box-shadow: 0 0 40px rgba(255, 91, 61, 0.2), inset 0 0 40px rgba(255, 91, 61, 0.04); }
+    50%      { box-shadow: 0 0 80px rgba(255, 91, 61, 0.45), inset 0 0 80px rgba(255, 91, 61, 0.10); }
+  }
+  .ultimate-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+  }
+  .ultimate-title {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #ff5b3d;
+  }
+  .ultimate-panel.done .ultimate-title { color: #d4af37; }
+  .ultimate-sub {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .ultimate-body {
+    font-family: var(--mono);
+    font-size: 14px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    color: #ffd9cc;
+    max-height: 60vh;
+    overflow-y: auto;
+    min-height: 60px;
+    padding-right: 8px;
+  }
+  .ultimate-foot {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 12px;
+  }
+
+  /* Awakening animation while waiting for first token */
+  .awakening {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #ff5b3d;
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 0.1em;
+  }
+  .awakening .dots {
+    display: inline-flex; gap: 4px;
+  }
+  .awakening .dots span {
+    width: 6px; height: 6px;
+    background: #ff5b3d;
+    border-radius: 50%;
+    animation: dotPulse 1.2s infinite ease-in-out;
+  }
+  .awakening .dots span:nth-child(2) { animation-delay: 0.2s; }
+  .awakening .dots span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes dotPulse {
+    0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+    40%           { transform: scale(1.0); opacity: 1.0; }
+  }
+
   /* ─── History ─────────────────────────────────────────────────────── */
   .history-section {
     margin-top: 28px;
@@ -511,6 +686,27 @@
     <div class="verdict-foot" id="verdict-foot"></div>
   </div>
 
+  <!-- ─── ULTIMATE JUDGE — appears only after the regular judge finishes ─── -->
+  <div class="ultimate-section" id="ultimate-section">
+    <div class="ultimate-warning">⚠ Disagree with the verdict? Summon the boss.</div>
+    <button class="summon-btn" id="summon-btn">👑 Summon the Ultimate Judge</button>
+    <div class="summon-sub">405 billion parameters · ~30s wake-up · 1 use per 5 minutes</div>
+  </div>
+
+  <div class="ultimate-panel" id="ultimate-panel">
+    <div class="ultimate-head">
+      <span class="ultimate-title" id="ultimate-title">⚡ ULTIMATE JUDGE</span>
+      <span class="ultimate-sub" id="ultimate-sub">405B · meta/llama-3.1-405b-instruct</span>
+    </div>
+    <div class="ultimate-body" id="ultimate-body">
+      <div class="awakening" id="ultimate-awakening">
+        <span>AWAKENING THE 405B</span>
+        <span class="dots"><span></span><span></span><span></span></span>
+      </div>
+    </div>
+    <div class="ultimate-foot" id="ultimate-foot"></div>
+  </div>
+
   <div class="history-section">
     <div class="section-label">Your recent sessions <span style="color:var(--text-faint);text-transform:none;letter-spacing:0">(only visible on this browser)</span></div>
     <div class="history-list" id="history">
@@ -525,6 +721,30 @@
   <div>© Vishaka Datta J Hebbar · <a href="https://github.com/Vishakadatta/ModelCouncil" target="_blank" rel="noopener">github</a></div>
   <div><span class="kbd">⌘</span><span class="kbd">↵</span> / <span class="kbd">Ctrl</span><span class="kbd">↵</span> to submit</div>
 </footer>
+
+<!-- ─── Danger modal — confirmation before summoning the 405B ─────────── -->
+<div class="modal-overlay danger-modal" id="danger-modal" onclick="if(event.target===this)closeDanger()">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title">⚠ SUMMON THE ULTIMATE JUDGE?</div>
+      <div class="modal-actions">
+        <button class="modal-btn" onclick="closeDanger()">CANCEL</button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <p>You are about to wake the <strong>405-billion-parameter Llama 3.1</strong> — the largest model on NVIDIA's free tier. It will:</p>
+      <ul>
+        <li>Re-read your question, every council answer, and the previous judge's verdict</li>
+        <li>Take <strong>30–60 seconds</strong> just to start responding</li>
+        <li>Issue a final, definitive ruling — confirming or overturning the previous judge</li>
+      </ul>
+      <p style="margin-top: 16px"><strong>Use this only when you genuinely doubt the verdict.</strong> The boss has limited patience — once per 5 minutes per visitor.</p>
+      <div style="margin-top: 22px; text-align: center">
+        <button class="modal-btn danger-confirm" id="danger-confirm">YES — SUMMON THE 405B</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- ─── Expand modal ────────────────────────────────────────────────────── -->
 <div class="modal-overlay" id="modal" onclick="if(event.target===this)closeModal()">
@@ -589,9 +809,13 @@
   const panelModel = ['—', '—', '—'];
   let verdictText = '';
   let verdictModel = '—';
+  let lastQuestion = '';     // for the Ultimate Judge call
 
   let es = null;
   let busy = false;
+  let ultimateBusy = false;
+  let lastUltimateAt = 0;    // client-side cooldown timer
+  const ULTIMATE_COOLDOWN_MS = 5 * 60 * 1000;
 
   // ─── Health + history on load ─────────────────────────────────────────
   async function loadHealth() {
@@ -715,6 +939,11 @@
     verdictFoot.textContent = '';
     verdictText = '';
     verdictModel = '—';
+    // Reset Ultimate Judge UI
+    $('ultimate-section').classList.remove('show');
+    $('ultimate-panel').classList.remove('show', 'streaming', 'done');
+    $('ultimate-body').innerHTML = '<div class="awakening" id="ultimate-awakening"><span>AWAKENING THE 405B</span><span class="dots"><span></span><span></span><span></span></span></div>';
+    $('ultimate-foot').textContent = '';
     errBanner.classList.remove('show');
     errBanner.textContent = '';
   }
@@ -765,6 +994,7 @@
     const q = questionEl.value.trim();
     if (!q) return;
 
+    lastQuestion = q;
     resetPanels();
     setBusy(true);
     setStatus('council in session…');
@@ -858,6 +1088,9 @@
       setBusy(false);
       es.close(); es = null;
       loadHistory();
+      // Reveal the Ultimate Judge button now that we have a verdict to challenge
+      $('ultimate-section').classList.add('show');
+      updateSummonButton();
     });
 
     es.addEventListener('error', (ev) => {
@@ -870,6 +1103,143 @@
       setBusy(false);
       setStatus('error');
       if (es) { es.close(); es = null; }
+    });
+  }
+
+  // ─── ULTIMATE JUDGE ──────────────────────────────────────────────────
+  const summonBtn   = $('summon-btn');
+  const dangerModal = $('danger-modal');
+  const dangerOk    = $('danger-confirm');
+  const ultPanel    = $('ultimate-panel');
+  const ultTitle    = $('ultimate-title');
+  const ultSub      = $('ultimate-sub');
+  const ultBody     = $('ultimate-body');
+  const ultFoot     = $('ultimate-foot');
+
+  let ultimateText = '';
+
+  function updateSummonButton() {
+    const remaining = ULTIMATE_COOLDOWN_MS - (Date.now() - lastUltimateAt);
+    if (ultimateBusy) {
+      summonBtn.disabled = true;
+      summonBtn.textContent = '⏳ DELIBERATING…';
+    } else if (remaining > 0) {
+      summonBtn.disabled = true;
+      const sec = Math.ceil(remaining / 1000);
+      const mm = Math.floor(sec / 60), ss = sec % 60;
+      summonBtn.textContent = `🕒 Cooldown ${mm}:${String(ss).padStart(2,'0')}`;
+      setTimeout(updateSummonButton, 1000);
+    } else {
+      summonBtn.disabled = false;
+      summonBtn.textContent = '👑 Summon the Ultimate Judge';
+    }
+  }
+
+  summonBtn.addEventListener('click', () => {
+    if (summonBtn.disabled) return;
+    dangerModal.classList.add('show');
+  });
+  window.closeDanger = () => dangerModal.classList.remove('show');
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && dangerModal.classList.contains('show')) closeDanger();
+  });
+
+  dangerOk.addEventListener('click', () => {
+    closeDanger();
+    summonUltimate();
+  });
+
+  async function summonUltimate() {
+    if (ultimateBusy) return;
+    ultimateBusy = true;
+    updateSummonButton();
+
+    // Reveal the panel in awakening state
+    ultPanel.classList.remove('done');
+    ultPanel.classList.add('show', 'streaming');
+    ultTitle.textContent = '⚡ AWAKENING THE 405B…';
+    ultBody.innerHTML = '<div class="awakening"><span>AWAKENING THE 405B</span><span class="dots"><span></span><span></span><span></span></span></div>';
+    ultFoot.textContent = 'expect 30–60s before first words appear';
+    ultimateText = '';
+
+    // Build payload from current state
+    const payload = {
+      question: lastQuestion,
+      council_summaries: panelModel.map((m, i) => ({ model: m, response: panelText[i] || '' })),
+      previous_verdict: verdictText,
+      previous_judge_model: verdictModel,
+    };
+
+    let sid;
+    try {
+      const r = await api('/ultimate-judge', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) {
+        let msg = `POST /ultimate-judge ${r.status}`;
+        if (r.status === 429) msg = 'Cooldown active. The Ultimate Judge rests for 5 minutes between summons.';
+        else { try { msg = (await r.text()) || msg; } catch {} }
+        throw new Error(msg);
+      }
+      const j = await r.json();
+      sid = j.session_id;
+      if (j.model) ultSub.textContent = `405B · ${j.model}`;
+    } catch (e) {
+      ultTitle.textContent = '✕ SUMMONING FAILED';
+      ultBody.textContent = e.message;
+      ultPanel.classList.remove('streaming');
+      ultimateBusy = false;
+      updateSummonButton();
+      return;
+    }
+
+    openUltimateStream(sid);
+  }
+
+  function openUltimateStream(sid) {
+    const ues = new EventSource(`${API}/stream/${sid}`);
+    let firstChunk = true;
+
+    ues.addEventListener('ultimate_start', (ev) => {
+      const d = JSON.parse(ev.data);
+      if (d.model) ultSub.textContent = `405B · ${d.model}`;
+      ultTitle.textContent = '⚡ THE 405B IS DELIBERATING…';
+    });
+
+    ues.addEventListener('ultimate_chunk', (ev) => {
+      const d = JSON.parse(ev.data);
+      if (firstChunk) {
+        ultBody.textContent = '';  // clear awakening animation
+        firstChunk = false;
+      }
+      ultimateText += d.text;
+      ultBody.textContent = ultimateText;
+      ultBody.scrollTop = ultBody.scrollHeight;
+    });
+
+    ues.addEventListener('ultimate_done', (ev) => {
+      const d = JSON.parse(ev.data);
+      ultPanel.classList.remove('streaming');
+      ultPanel.classList.add('done');
+      ultTitle.textContent = '👑 ULTIMATE VERDICT ✓';
+      ultFoot.textContent = `↳ ${d.latency}s · ${d.tokens} tokens · the boss has spoken`;
+      ues.close();
+      ultimateBusy = false;
+      lastUltimateAt = Date.now();
+      updateSummonButton();
+    });
+
+    ues.addEventListener('error', (ev) => {
+      let msg = 'ultimate judge error';
+      try { msg = (JSON.parse(ev.data || '{}').message) || msg; } catch {}
+      ultPanel.classList.remove('streaming');
+      ultTitle.textContent = '✕ SUMMONING INTERRUPTED';
+      ultBody.textContent = msg;
+      ues.close();
+      ultimateBusy = false;
+      updateSummonButton();
     });
   }
 
