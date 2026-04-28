@@ -190,11 +190,11 @@ Central policy file. Nothing else in the codebase hardcodes model names or origi
 | `assert_production_allowed(tag, role)` | raises `ModelPolicyError` | Ollama policy gate |
 | `assert_council_diverse(tags)` | raises `ModelPolicyError` | No duplicate council models |
 
-**Blocked publishers** (Chinese-origin policy):
+**Publisher allowlist approach:**
 
-Alibaba/Qwen, Baidu, ByteDance, Tencent, DeepSeek, 01.ai, THUDM/Zhipu (all forms: `zhipu-ai`, `z-ai`, `zhipuai`), MiniMax (`minimax-ai`, `minimaxai`), Moonshot/Kimi (`moonshot-ai`, `moonshotai`), Baichuan, InternLM, Shanghai AI Lab, SenseTime, Megvii, Step (`stepfun-ai`, `stepfun`), BAAI (Beijing Academy of AI), IDEA Research, university labs (Tsinghua COAI, Peking Univ., Fudan NLP), and others.
+To keep the council deterministic and the dependency surface small, only publishers in `NIM_PUBLISHER_MAP` are eligible. New publishers can be added there as the project's vendor list expands. `NIM_BLOCKED_PUBLISHERS` is an explicit deny list for publishers we know we don't want to surface, primarily because their geographic-origin metadata isn't easily verifiable through NIM's catalogue alone.
 
-> Note: NIM uses no-hyphen publisher prefixes (`moonshotai`, `minimaxai`) — the blocklist includes both hyphenated and un-hyphenated forms.
+> Implementation note: NIM uses no-hyphen publisher prefixes (`moonshotai`, `minimaxai`) — both hyphenated and un-hyphenated forms are listed in the deny set so naming variants don't slip through.
 
 ---
 

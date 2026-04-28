@@ -72,16 +72,16 @@ Rationale: a naive "pick the best of three" prompt anchors the judge to the coun
 
 | Rule | Action |
 |------|--------|
-| Publisher in `NIM_BLOCKED_PUBLISHERS` | Reject |
-| Publisher not in `NIM_PUBLISHER_MAP` | Reject (unknown origin = not trusted) |
-| No parseable parameter count in model name | Reject |
-| 15B ≤ params < 30B | Reject (ambiguous gap — skip) |
+| Publisher in `NIM_BLOCKED_PUBLISHERS` | Skip |
+| Publisher not in `NIM_PUBLISHER_MAP` | Skip (only catalogued vendors are surfaced) |
+| No parseable parameter count in model name | Skip |
+| 15B ≤ params < 30B | Skip (ambiguous gap — too big for council, too small for judge) |
 | params < 15B | council candidate |
 | params ≥ 30B | judge candidate |
 | Council has < 1 USA model | Reject entire set |
 | Council has < 1 non-USA model | Accept if no non-USA available (warn) |
 
-Blocked publishers (all spelling variants): Alibaba/Qwen, Baidu, ByteDance, Tencent, DeepSeek, 01.ai, Zhipu/GLM (z-ai, zhipu-ai, zhipuai), MiniMax (minimax-ai, minimaxai), Moonshot/Kimi (moonshot-ai, moonshotai), Baichuan, InternLM, Shanghai AI Lab, SenseTime, Megvii, Step (stepfun-ai, stepfun), BAAI, IDEA Research, Tsinghua COAI, Fudan NLP, Peking University SLAM.
+The `NIM_PUBLISHER_MAP` enumerates known vendors and their headquarters. The deny list (`NIM_BLOCKED_PUBLISHERS`) covers publishers whose origin metadata isn't easily verifiable from the catalogue alone, plus naming variants (e.g. `moonshotai` and `moonshot-ai` are both listed since NIM uses both forms).
 
 ### Runtime fallback
 

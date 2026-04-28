@@ -107,13 +107,13 @@ The first model in `COUNCIL_MODELS` is tried first; on 503/404 the client silent
 
 Models are discovered live at setup time by `setup/nim_discover.py`. Rules applied in order:
 
-1. **Blocked origin** — Chinese-origin publishers rejected (see list in `NIM_BLOCKED_PUBLISHERS`)
-2. **Unknown origin** — publisher not in `NIM_PUBLISHER_MAP` → rejected
-3. **No size** — can't parse a parameter count → rejected
-4. **Gap zone** — 15–29B models → rejected (too big for council, too small for judge)
-5. **Geographic diversity** — council must have ≥1 USA and ≥1 non-USA model
+1. **Deny list** — publishers in `NIM_BLOCKED_PUBLISHERS` are skipped
+2. **Unknown publisher** — not in `NIM_PUBLISHER_MAP` → skipped (only catalogued vendors are surfaced)
+3. **No size** — can't parse a parameter count → skipped
+4. **Gap zone** — 15–29B models → skipped (too big for council, too small for judge)
+5. **Geographic diversity** — council must mix US and non-US labs
 
-Blocked publishers include (all variants): Alibaba/Qwen, DeepSeek, ByteDance, Tencent, 01.ai, Zhipu/GLM (z-ai), MiniMax (minimaxai), Moonshot/Kimi (moonshotai), Baichuan, InternLM, Step (stepfun-ai), BAAI, SenseTime, Megvii, and associated university labs.
+The `NIM_PUBLISHER_MAP` is the source of truth — adding a publisher is a single-line change in `council/models.py`.
 
 ### Ollama backend
 
