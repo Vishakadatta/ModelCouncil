@@ -19,10 +19,13 @@ from datetime import datetime
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 from sse_starlette.sse import EventSourceResponse
 
 from council.models import ModelPolicyError, origin_for
@@ -64,10 +67,27 @@ def _flag_for(origin: str) -> str:
 
 app = FastAPI(title="Model Council")
 
-# CORS is required for production: GitHub Pages (frontend) → Render (API)
+# Rate limiter — keyed by client IP. Applied per-route via decorator.
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# CORS — lock down to the GitHub Pages frontend (and localhost for dev).
+# Anyone else calling this API from a browser will be rejected by CORS.
+# Extra origins can be added via the ALLOWED_ORIGINS env var (comma-separated).
+_default_origins = [
+    "https://vishakadatta.github.io",
+    "http://localhost:7860",
+    "http://127.0.0.1:7860",
+]
+_extra = [
+    o.strip()
+    for o in os.environ.get("ALLOWED_ORIGINS", "").split(",")
+    if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # lock down to your Pages URL in production if desired
+    allow_origins=_default_origins + _extra,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
@@ -216,7 +236,8 @@ async def history():
 
 
 @app.post("/ask")
-async def ask(req: AskRequest):
+@limiter.limit("10/minute")
+async def ask(request: Request, req: AskRequest):
     question = req.question.strip()
     if not question:
         raise HTTPException(400, "empty question")
