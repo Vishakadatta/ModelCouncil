@@ -484,7 +484,8 @@
     position: relative;
     overflow: hidden;
   }
-  .ultimate-panel.show { display: block; }
+  .ultimate-panel.show { display: block; cursor: pointer; }
+  .ultimate-panel:hover { filter: brightness(1.1); }
   .ultimate-panel.streaming {
     border-color: #ff5b3d;
     box-shadow: 0 0 60px rgba(255, 91, 61, 0.25), inset 0 0 60px rgba(255, 91, 61, 0.05);
@@ -899,22 +900,34 @@
     } catch (e) { modalCopy.textContent = 'FAILED'; }
   });
 
+  // Single Escape handler for every modal (read view + danger confirm).
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeModal();
+    if (e.key !== 'Escape') return;
+    closeModal();
+    if (typeof window.closeDanger === 'function') window.closeDanger();
   });
 
-  // Click any card → modal expand
-  cards.forEach((card, idx) => {
-    card.addEventListener('click', () => {
-      if (card.classList.contains('idle')) return;
-      openModal(`Council Member ${idx + 1} — ${panelModel[idx]}`, panelText[idx]);
+  // Generic helper: wire any clickable element to open the read modal.
+  // The element won't open while it's in the 'idle' state (nothing to show yet).
+  function bindReadModal(el, getTitle, getText) {
+    el.addEventListener('click', () => {
+      if (el.classList.contains('idle')) return;
+      openModal(getTitle(), getText());
     });
+  }
+
+  cards.forEach((card, idx) => {
+    bindReadModal(
+      card,
+      () => `Council Member ${idx + 1} — ${panelModel[idx]}`,
+      () => panelText[idx],
+    );
   });
 
-  verdict.addEventListener('click', () => {
-    if (verdict.classList.contains('idle')) return;
-    openModal(`Final Verdict — ${verdictModel}`, verdictText);
-  });
+  bindReadModal(verdict,
+    () => `Final Verdict — ${verdictModel}`,
+    () => verdictText,
+  );
 
   // ─── Panel helpers ────────────────────────────────────────────────────
   function setCardStatus(card, statusText, klass) {
@@ -1140,14 +1153,18 @@
     dangerModal.classList.add('show');
   });
   window.closeDanger = () => dangerModal.classList.remove('show');
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && dangerModal.classList.contains('show')) closeDanger();
-  });
 
   dangerOk.addEventListener('click', () => {
     closeDanger();
     summonUltimate();
   });
+
+  // Click the ultimate panel (when it has content) → reuse the same read modal
+  // as council/judge for COPY/CLOSE consistency.
+  bindReadModal(ultPanel,
+    () => `Ultimate Verdict — meta/llama-3.1-405b-instruct`,
+    () => ultimateText,
+  );
 
   async function summonUltimate() {
     if (ultimateBusy) return;
@@ -1224,7 +1241,7 @@
       ultPanel.classList.remove('streaming');
       ultPanel.classList.add('done');
       ultTitle.textContent = '👑 ULTIMATE VERDICT ✓';
-      ultFoot.textContent = `↳ ${d.latency}s · ${d.tokens} tokens · the boss has spoken`;
+      ultFoot.textContent = `↳ ${d.latency}s · ${d.tokens} tokens · click to expand & copy`;
       ues.close();
       ultimateBusy = false;
       lastUltimateAt = Date.now();
