@@ -113,12 +113,14 @@ async def stream_generate(
                 yield item
             return  # success
         except httpx.HTTPStatusError as e:
-            if e.response.status_code in (404, 503):
+            if e.response.status_code in (400, 404, 503):
+                # 400 = NIM marks the model "DEGRADED function cannot be invoked"
+                #       — transient outage on NVIDIA's side
                 # 404 = model not available on this tier
                 # 503 = free-tier queue full
                 last_error = e
                 continue  # try next candidate
-            raise  # other 4xx/5xx — don't retry
+            raise  # other 4xx/5xx (401 auth, 429 rate-limit) — don't retry
 
     raise RuntimeError(
         f"All NIM fallback models returned 503 (queue full). "
