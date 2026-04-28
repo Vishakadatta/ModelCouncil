@@ -115,7 +115,7 @@ def _run_local_setup() -> int:
     _write_env_ollama(ENV_PATH, base_url, plan.council, plan.judge)
     console.print(f"\n[green]Wrote {ENV_PATH}.[/green]")
     console.print(
-        "Run [bold]make web[/bold] or [bold]python council.py[/bold] to ask a question."
+        "Run [bold]make web[/bold] or [bold]python cli.py[/bold] to ask a question."
     )
     return 0
 
@@ -224,7 +224,7 @@ def _run_demo() -> int:
     _write_env_ollama(ENV_DEMO_PATH, base_url, DEMO_COUNCIL, DEMO_JUDGE, demo=True)
     console.print(f"[green]Wrote {ENV_DEMO_PATH}.[/green]")
 
-    cmd = [sys.executable, "council.py", "--env", str(ENV_DEMO_PATH), DEMO_QUESTION]
+    cmd = [sys.executable, "cli.py", "--env", str(ENV_DEMO_PATH), DEMO_QUESTION]
     console.print(f"\n[dim]Running: {' '.join(cmd)}[/dim]\n")
     return subprocess.call(cmd)
 

@@ -2,9 +2,9 @@
 """Entrypoint: ask the council a question.
 
 Usage:
-  python council.py "your question here"
-  python council.py --env .env.demo "your question"
-  python council.py            # interactive prompt
+  python cli.py "your question here"
+  python cli.py --env .env.demo "your question"
+  python cli.py            # interactive prompt
 """
 
 from __future__ import annotations

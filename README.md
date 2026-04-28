@@ -152,9 +152,11 @@ results/          Session JSON output
 render.yaml       Render service definition
 Makefile          All commands
 
-SPEC.md           Full technical specification
-ARCHITECTURE.md   Architecture overview
-FUNCTIONAL_SPEC.md Functional contract
+docs/             Technical documentation
+  SPEC.md           Full technical specification
+  ARCHITECTURE.md   Architecture overview
+  FUNCTIONAL_SPEC.md Functional contract
+cli.py            Pure-CLI entry point
 ```
 
 ---

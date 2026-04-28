@@ -104,7 +104,6 @@ ModelCouncil/
 │   └── deploy.yml          # CI: inject Render URL → GitHub Pages; verify Render /health
 │
 ├── render.yaml             # Render service definition + env var defaults
-├── Procfile                # Fallback start command for Render
 ├── requirements.txt        # Python dependencies
 ├── Makefile                # make setup / make demo / make test / make run
 └── SPEC.md                 # This file

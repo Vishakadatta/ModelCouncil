@@ -20,11 +20,11 @@ web:
 	uvicorn api.server:app --host 0.0.0.0 --port 7860 --reload
 
 run:
-	python3 council.py
+	python3 cli.py
 
 run-remote:
 	python3 -m setup.setup
-	python3 council.py
+	python3 cli.py
 
 test:
 	python3 -m pytest tests/ -v

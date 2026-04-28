@@ -10,7 +10,7 @@ Two backends are supported:
 
 Two interfaces are supported:
 - **Web UI** — FastAPI + Server-Sent Events on port 7860, live at https://vishakadatta.github.io/ModelCouncil/
-- **CLI** — `python council.py "..."` or `make run`
+- **CLI** — `python cli.py "..."` or `make run`
 
 ---
 
@@ -286,4 +286,3 @@ make test
 - Multi-turn conversation — each request is independent
 - Retrieval or memory — no RAG, no vector store
 - Benchmarking / leaderboards — the output is one best answer, not a score table
-- The legacy Flask app under `legacy/` — not maintained
