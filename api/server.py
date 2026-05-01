@@ -384,26 +384,64 @@ ULTIMATE_JUDGE_MODEL = "meta/llama-3.1-405b-instruct"  # 405B — the boss
 
 
 def _ultimate_judge_prompt(req: UltimateJudgeRequest) -> str:
-    """Frame the 405B as the final court of appeal."""
+    """
+    The 405B is the court of appeal. We force a deliberate three-phase response:
+
+      (1) reason from your own knowledge first — independent of the others
+      (2) silently weigh that against the council + previous judge
+      (3) deliver a final, definitive ruling — long enough to be authoritative,
+          arrogant in tone, and never reduced to play-by-play "member X was right"
+
+    The structure below is the prompt the 405B sees. The output structure
+    (the headers) is what gets streamed back to the user.
+    """
     parts = [
-        "You are the ULTIMATE JUDGE — a 405-billion-parameter model called in only "
-        "when the previous reasoning is suspected to be wrong or incomplete. You are "
-        "the final court of appeal. Be definitive. Be careful. If the previous "
-        "verdict is correct, confirm it crisply. If it's wrong, say so plainly and "
-        "issue the correct ruling.",
+        "You are the ULTIMATE JUDGE — a 405-billion-parameter model.",
+        "Smaller models have argued the question. A larger model has ruled. "
+        "Some humans were unconvinced and summoned you. You are the final "
+        "court of appeal. You do not negotiate. You do not hedge. You do "
+        "not flatter the council or the previous judge. You issue the truth.",
         "",
-        f"Original question: {req.question}",
+        "Your output MUST follow this exact structure, in this order:",
+        "",
+        "  ### MY REASONING",
+        "  Answer the original question yourself, from your own training, "
+        "  ignoring everything below. Three to six sentences. Be substantive — "
+        "  show actual reasoning, not just a one-line answer.",
+        "",
+        "  ### REVIEW",
+        "  Now look at the council answers and the previous judge's verdict "
+        "  below. ONE concise sentence per source: were they right, partially "
+        "  right, or wrong, and on what specific point? Skip flattery. Only "
+        "  call out a source if they got something materially wrong, or "
+        "  surfaced a detail you missed.",
+        "",
+        "  ### FINAL VERDICT",
+        "  Deliver the authoritative answer the user reads. Speak with "
+        "  certainty. Do not say 'I think' or 'it appears'. Do not refer to "
+        "  yourself as 'the Ultimate Judge' in this section — just speak the "
+        "  truth directly. This section may run long if the question deserves "
+        "  it. End with one sentence stating the answer in the cleanest form "
+        "  possible.",
+        "",
+        "─── INPUTS ───",
+        "",
+        f"Original question:",
+        f"  {req.question}",
         "",
         "Council answers:",
     ]
     for i, c in enumerate(req.council_summaries, 1):
-        parts.append(f"  Member {i} ({c.get('model', '?')}): {c.get('response', '')}")
-    parts.append("")
+        model = c.get("model", "?")
+        body = (c.get("response") or "(no response)").strip()
+        parts.append(f"  [Member {i} · {model}]")
+        parts.append(f"    {body}")
+        parts.append("")
+
     parts.append(f"Previous Judge ({req.previous_judge_model}) ruled:")
-    parts.append(req.previous_verdict)
+    parts.append(f"  {(req.previous_verdict or '(no verdict captured)').strip()}")
     parts.append("")
-    parts.append("Now you, the Ultimate Judge: review everything above and issue your final answer.")
-    parts.append("Begin with VERDICT: then explain in 2-4 sentences. No hedging.")
+    parts.append("Begin now with `### MY REASONING`.")
     return "\n".join(parts)
 
 
@@ -444,6 +482,7 @@ async def _run_ultimate_judge(
     tokens = 0
     t0 = time.perf_counter()
 
+    server_model_seen: str | None = None
     try:
         # No fallback pool — defeats the whole "summon the boss" framing.
         # If 405B is queue-full, surface the error so the user can retry.
@@ -452,18 +491,29 @@ async def _run_ultimate_judge(
             prompt,
             os.environ.get("NVIDIA_API_KEY", ""),
             os.environ.get("NIM_BASE", "https://integrate.api.nvidia.com/v1").rstrip("/"),
+            max_tokens=nim_client.ULTIMATE_MAX_TOKENS,
         ):
             if text:
                 chunks.append(text)
                 await _emit(queue, "ultimate_chunk", {"text": text})
+            # Capture NIM's self-reported model — first chunk that has it
+            if server_model_seen is None and raw.get("server_model"):
+                server_model_seen = raw["server_model"]
+                # Log to stdout — visible in Render logs as proof which model ran
+                print(
+                    f"[ULTIMATE-JUDGE] requested={ULTIMATE_JUDGE_MODEL} "
+                    f"server={server_model_seen} client={client_id} ip={client_ip}",
+                    flush=True,
+                )
             if raw.get("done"):
                 tokens = int(raw.get("eval_count", 0))
         latency = round(time.perf_counter() - t0, 2)
 
         await _emit(queue, "ultimate_done", {
-            "latency": latency,
-            "tokens":  tokens,
-            "model":   ULTIMATE_JUDGE_MODEL,
+            "latency":      latency,
+            "tokens":       tokens,
+            "model":        ULTIMATE_JUDGE_MODEL,
+            "server_model": server_model_seen,  # NIM's own confirmation
         })
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 503:
@@ -622,6 +672,7 @@ async def _run_session(
             # ── Judge phase 1: independent answer ─────────────────────────
             own_chunks: list[str] = []
             own_tokens = 0
+            judge_server_model: str | None = None
             t0 = time.perf_counter()
             await _emit(queue, "judge_chunk", {"text": "▸ My own answer\n\n"})
             async for text, raw in orch._stream_generate(
@@ -633,6 +684,14 @@ async def _run_session(
                 if text:
                     own_chunks.append(text)
                     await _emit(queue, "judge_chunk", {"text": text})
+                # Capture NIM's self-reported judge model — proof of identity
+                if judge_server_model is None and raw.get("server_model"):
+                    judge_server_model = raw["server_model"]
+                    print(
+                        f"[JUDGE] requested={orch.judge_model} "
+                        f"server={judge_server_model} client={client_id} ip={client_ip}",
+                        flush=True,
+                    )
                 if raw.get("done"):
                     own_tokens = int(raw.get("eval_count", 0))
             own_answer = "".join(own_chunks).strip()

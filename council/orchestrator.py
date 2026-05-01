@@ -147,16 +147,15 @@ class Orchestrator:
 
         if backend == "nim":
             # NIM path — keep_alive is an Ollama-only concept, not sent.
-            # Pass the appropriate fallback pool based on whether this is a
-            # council model or the judge.
+            # Pass the appropriate fallback pool + max_tokens based on whether
+            # this is a council member or the judge. The judge gets more room
+            # because it has to review every council answer + emit a verdict.
             from council import nim_client
-            pool = (
-                nim_client.JUDGE_FALLBACK_POOL
-                if model == self.judge_model
-                else nim_client.COUNCIL_FALLBACK_POOL
-            )
+            is_judge = (model == self.judge_model)
+            pool = nim_client.JUDGE_FALLBACK_POOL if is_judge else nim_client.COUNCIL_FALLBACK_POOL
+            mtok = nim_client.JUDGE_MAX_TOKENS if is_judge else nim_client.MAX_TOKENS
             async for chunk in nim_client.stream_generate(
-                model, prompt, fallback_pool=pool
+                model, prompt, fallback_pool=pool, max_tokens=mtok
             ):
                 yield chunk
             return
