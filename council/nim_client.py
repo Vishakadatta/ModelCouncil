@@ -24,7 +24,9 @@ from typing import AsyncIterator
 import httpx
 
 DEFAULT_NIM_BASE = "https://integrate.api.nvidia.com/v1"
-MAX_TOKENS = 1024
+MAX_TOKENS = 1024            # default — fine for council members
+JUDGE_MAX_TOKENS = 2048      # the regular judge needs more room for review + verdict
+ULTIMATE_MAX_TOKENS = 3500   # the 405B should not be cut short — it's the final word
 TEMPERATURE = 0.7
 
 # Pool of council-tier western text models (4B–14B).
@@ -69,6 +71,7 @@ async def stream_generate(
     api_key: str | None = None,
     base: str | None = None,
     fallback_pool: list[str] | None = None,
+    max_tokens: int = MAX_TOKENS,
 ) -> AsyncIterator[tuple[str, dict]]:
     """
     Stream tokens from NVIDIA NIM for a single prompt.
@@ -109,7 +112,7 @@ async def stream_generate(
 
     for candidate in candidates:
         try:
-            async for item in _stream_once(candidate, prompt, api_key, base):
+            async for item in _stream_once(candidate, prompt, api_key, base, max_tokens):
                 yield item
             return  # success
         except httpx.HTTPStatusError as e:
@@ -133,13 +136,14 @@ async def _stream_once(
     prompt: str,
     api_key: str,
     base: str,
+    max_tokens: int = MAX_TOKENS,
 ) -> AsyncIterator[tuple[str, dict]]:
     """Single attempt to stream from one model — no retry logic."""
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "stream": True,
-        "max_tokens": MAX_TOKENS,
+        "max_tokens": max_tokens,
         "temperature": TEMPERATURE,
     }
     headers = {
@@ -149,6 +153,7 @@ async def _stream_once(
 
     token_count = 0
     first_chunk = True
+    server_model: str | None = None  # what NVIDIA's response says identified itself as
 
     async with httpx.AsyncClient(timeout=600.0) as client:
         async with client.stream(
@@ -173,6 +178,7 @@ async def _stream_once(
                         "done": True,
                         "eval_count": token_count,
                         "model": model,
+                        "server_model": server_model,
                     }
                     return
 
@@ -180,6 +186,11 @@ async def _stream_once(
                     obj = json.loads(data_str)
                 except json.JSONDecodeError:
                     continue
+
+                # Capture NIM's self-reported model on first chunk that has it.
+                # This is independent confirmation of which model handled the call.
+                if server_model is None:
+                    server_model = obj.get("model")
 
                 choices = obj.get("choices", [])
                 if not choices:
@@ -197,7 +208,8 @@ async def _stream_once(
                     "response": text,
                     "done": done,
                     "eval_count": token_count if done else 0,
-                    "model": model,  # actual model used (may differ from requested)
+                    "model": model,                # what we requested
+                    "server_model": server_model,  # what NIM says it actually is
                 }
 
                 # On first chunk, signal if a fallback was activated
