@@ -12,16 +12,18 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import statistics
 import time
 import uuid
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -761,3 +763,267 @@ async def _run_session(
         await _emit(queue, "error", {"message": f"{type(e).__name__}: {e}"})
     finally:
         await queue.put(None)
+
+
+# ---------------------------------------------------------------------------
+# GPU Inference Observatory — /api/* routes
+# Same service, same NVIDIA_API_KEY. Frontend at:
+# https://vishakadatta.github.io/gpu-inference-infra/
+# ---------------------------------------------------------------------------
+
+_OBS_NIM_BASE      = "https://integrate.api.nvidia.com/v1"
+_OBS_DEFAULT_MODEL = "meta/llama-3.1-8b-instruct"
+
+_OBS_BLOCKED: frozenset[str] = frozenset({
+    "deepseek-ai", "deepseek", "qwen", "alibaba", "01-ai",
+    "thudm", "zhipu-ai", "zhipuai", "glm",
+    "minimax-ai", "minimaxai", "moonshot-ai", "moonshotai",
+    "baichuan-inc", "baichuan", "z-ai", "internlm", "openbmb",
+})
+
+_OBS_PROMPTS = {
+    "short":  "What is a GPU?",
+    "medium": (
+        "Explain in detail how a graphics processing unit works, "
+        "including its architecture, how it differs from a CPU, "
+        "and why it is useful for machine learning workloads."
+    ),
+    "long": (
+        "Write a comprehensive technical overview of GPU computing. "
+        "Cover: the history of GPU development, CUDA programming model, "
+        "GPU memory hierarchy (global, shared, registers, L1/L2 cache), "
+        "thread execution model (warps, blocks, grids), common optimisation "
+        "techniques, comparison with CPUs for parallel workloads, and the "
+        "role of GPUs in modern AI inference and training."
+    ),
+}
+
+
+def _obs_auth() -> str | None:
+    key = os.environ.get("NVIDIA_API_KEY", "")
+    return f"Bearer {key}" if key else None
+
+
+def _obs_allowed(model_id: str) -> bool:
+    if "/" not in model_id:
+        return True
+    return model_id.split("/")[0].lower() not in _OBS_BLOCKED
+
+
+class _ObsInferReq(BaseModel):
+    prompt:     str
+    model:      Optional[str] = None
+    max_tokens: int = 256
+
+
+class _ObsLoadTestReq(BaseModel):
+    prompt_preset: str = "short"
+    concurrency:   int = 4
+    num_requests:  int = 20
+    max_tokens:    int = 100
+    model:         Optional[str] = None
+
+
+async def _obs_stream(prompt: str, model: str, max_tokens: int) -> dict:
+    auth = _obs_auth()
+    headers = {"Content-Type": "application/json"}
+    if auth:
+        headers["Authorization"] = auth
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": True,
+        "max_tokens": max_tokens,
+        "temperature": 0.7,
+    }
+    start = time.perf_counter()
+    ttft_ms = None
+    full_text = ""
+    token_count = 0
+    prompt_tokens = 0
+    model_used = model
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        async with client.stream("POST", f"{_OBS_NIM_BASE}/chat/completions",
+                                 json=payload, headers=headers) as resp:
+            if resp.status_code != 200:
+                body = await resp.aread()
+                raise HTTPException(resp.status_code,
+                                    f"NIM {resp.status_code}: {body.decode()[:300]}")
+            async for raw_line in resp.aiter_lines():
+                if not raw_line or not raw_line.startswith("data: "):
+                    continue
+                chunk = raw_line[6:]
+                if chunk.strip() == "[DONE]":
+                    break
+                try:
+                    obj = json.loads(chunk)
+                except json.JSONDecodeError:
+                    continue
+                if obj.get("usage"):
+                    prompt_tokens = obj["usage"].get("prompt_tokens", 0)
+                choices = obj.get("choices", [])
+                if not choices:
+                    continue
+                text = choices[0].get("delta", {}).get("content") or ""
+                if text:
+                    if ttft_ms is None:
+                        ttft_ms = (time.perf_counter() - start) * 1000
+                    full_text += text
+                    token_count += 1
+                if obj.get("model"):
+                    model_used = obj["model"]
+
+    total_ms = (time.perf_counter() - start) * 1000
+    tps = token_count / (total_ms / 1000) if total_ms > 0 else 0.0
+    return {
+        "answer":            full_text,
+        "ttft_ms":           round(ttft_ms or 0.0, 1),
+        "total_latency_ms":  round(total_ms, 1),
+        "tokens_generated":  token_count,
+        "prompt_tokens":     prompt_tokens,
+        "tokens_per_second": round(tps, 1),
+        "model_used":        model_used,
+        "backend":           "nim-hosted",
+    }
+
+
+async def _obs_single(prompt: str, model: str, max_tokens: int,
+                      sem: asyncio.Semaphore, req_id: int) -> dict:
+    auth = _obs_auth()
+    headers = {"Content-Type": "application/json"}
+    if auth:
+        headers["Authorization"] = auth
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": False,
+        "max_tokens": max_tokens,
+        "temperature": 0.7,
+    }
+    start = time.perf_counter()
+    async with sem:
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                resp = await client.post(f"{_OBS_NIM_BASE}/chat/completions",
+                                         json=payload, headers=headers)
+            elapsed = (time.perf_counter() - start) * 1000
+            if resp.status_code != 200:
+                return {"req_id": req_id, "status": "error",
+                        "latency_ms": round(elapsed, 2),
+                        "error": f"HTTP {resp.status_code}"}
+            tokens = resp.json().get("usage", {}).get("completion_tokens", 0)
+            tps = tokens / (elapsed / 1000) if elapsed > 0 else 0.0
+            return {"req_id": req_id, "status": "success",
+                    "latency_ms": round(elapsed, 2),
+                    "tokens_generated": tokens,
+                    "tokens_per_second": round(tps, 2)}
+        except Exception as e:
+            elapsed = (time.perf_counter() - start) * 1000
+            return {"req_id": req_id, "status": "error",
+                    "latency_ms": round(elapsed, 2), "error": str(e)}
+
+
+@app.get("/api/health")
+async def obs_health():
+    auth = _obs_auth()
+    hdrs = {"Authorization": auth} if auth else {}
+    start = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(f"{_OBS_NIM_BASE}/models", headers=hdrs)
+        ok = r.status_code == 200
+        return {
+            "status":      "ok" if ok else "degraded",
+            "backend":     "nim-hosted",
+            "model":       _OBS_DEFAULT_MODEL,
+            "latency_ms":  round((time.perf_counter() - start) * 1000, 1),
+            "http_status": r.status_code,
+        }
+    except Exception as e:
+        return JSONResponse(status_code=503,
+                            content={"status": "error", "detail": str(e)})
+
+
+@app.get("/api/models")
+async def obs_models():
+    auth = _obs_auth()
+    hdrs = {"Authorization": auth} if auth else {}
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.get(f"{_OBS_NIM_BASE}/models", headers=hdrs)
+        r.raise_for_status()
+        models = [
+            m["id"] for m in r.json().get("data", [])
+            if _obs_allowed(m.get("id", ""))
+        ]
+        if _OBS_DEFAULT_MODEL in models:
+            models.remove(_OBS_DEFAULT_MODEL)
+            models.insert(0, _OBS_DEFAULT_MODEL)
+        return {"models": models, "default": _OBS_DEFAULT_MODEL}
+    except Exception as e:
+        raise HTTPException(502, str(e))
+
+
+@app.post("/api/infer")
+@limiter.limit("10/minute")
+async def obs_infer(request: Request, req: _ObsInferReq):
+    model = req.model or _OBS_DEFAULT_MODEL
+    try:
+        return await _obs_stream(req.prompt, model, req.max_tokens)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, str(e))
+
+
+@app.post("/api/loadtest")
+@limiter.limit("10/minute")
+async def obs_loadtest(request: Request, req: _ObsLoadTestReq):
+    if req.prompt_preset not in _OBS_PROMPTS:
+        raise HTTPException(400, f"prompt_preset must be one of {list(_OBS_PROMPTS)}")
+    if req.concurrency > 16:
+        raise HTTPException(400, "concurrency max is 16")
+    if req.num_requests > 50:
+        raise HTTPException(400, "num_requests max is 50")
+
+    model  = req.model or _OBS_DEFAULT_MODEL
+    prompt = _OBS_PROMPTS[req.prompt_preset]
+    sem    = asyncio.Semaphore(req.concurrency)
+
+    t0      = time.perf_counter()
+    results = await asyncio.gather(*[
+        _obs_single(prompt, model, req.max_tokens, sem, i)
+        for i in range(req.num_requests)
+    ])
+    total_s = time.perf_counter() - t0
+
+    successes = [r for r in results if r["status"] == "success"]
+    errors    = [r for r in results if r["status"] == "error"]
+    latencies = sorted(r["latency_ms"] for r in successes)
+    n = len(latencies)
+
+    def pct(p: float) -> float:
+        if not latencies:
+            return 0.0
+        return round(latencies[min(int(p / 100 * n), n - 1)], 1)
+
+    summary = {
+        "total_requests":  req.num_requests,
+        "successful":      len(successes),
+        "errors":          len(errors),
+        "error_rate_pct":  round(len(errors) / req.num_requests * 100, 1),
+        "duration_s":      round(total_s, 2),
+        "concurrency":     req.concurrency,
+        "prompt_preset":   req.prompt_preset,
+        "model":           model,
+        "avg_latency_ms":  round(statistics.mean(latencies), 1) if latencies else 0,
+        "p50_ms":          pct(50),
+        "p95_ms":          pct(95),
+        "p99_ms":          pct(99),
+        "min_latency_ms":  round(latencies[0],  1) if latencies else 0,
+        "max_latency_ms":  round(latencies[-1], 1) if latencies else 0,
+        "avg_tps":         round(statistics.mean(
+            r["tokens_per_second"] for r in successes), 1) if successes else 0,
+    }
+    return {"summary": summary, "results": results}
