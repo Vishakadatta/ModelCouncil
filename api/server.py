@@ -382,7 +382,7 @@ class UltimateJudgeRequest(BaseModel):
     previous_judge_model: str = ""
 
 
-ULTIMATE_JUDGE_MODEL = "meta/llama-3.1-405b-instruct"  # 405B — the boss
+ULTIMATE_JUDGE_MODEL = "nvidia/nemotron-3-ultra-550b-a55b"  # 550B MoE — the boss
 
 
 def _ultimate_judge_prompt(req: UltimateJudgeRequest) -> str:

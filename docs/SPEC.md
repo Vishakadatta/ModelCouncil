@@ -119,45 +119,37 @@ ModelCouncil/
 **Endpoint:** `POST /chat/completions` (OpenAI-compatible, SSE)
 **Auth:** `Authorization: Bearer <NVIDIA_API_KEY>`
 
-Models are specified by `publisher/model-name` IDs, e.g. `meta/llama-3.1-8b-instruct`.
+Models are specified by `publisher/model-name` IDs, e.g. `meta/llama-3.2-11b-vision-instruct`.
 
 #### Current model plan
 
 | Role | Model | Origin | Size |
 |------|-------|--------|------|
-| Council 1 | `meta/llama-3.1-8b-instruct` | Meta, USA | 8B |
-| Council 2 | `mistralai/mistral-7b-instruct-v0.3` | Mistral AI, France | 7B |
-| Council 3 | `google/gemma-3-4b-it` | Google, USA | 4B — fast |
-| Judge | `nvidia/llama-3.1-nemotron-70b-instruct` | NVIDIA, USA | 70B |
+| Council 1 | `meta/llama-3.2-11b-vision-instruct` | Meta, USA | 11B |
+| Council 2 | `openai/gpt-oss-20b` | OpenAI, USA | 20B |
+| Council 3 | `nvidia/nemotron-3.5-lightning-30b-a3b` | NVIDIA, USA | 30B MoE |
+| Judge | `nvidia/nemotron-3.5-super-vl-120b-a12b` | NVIDIA, USA | 120B MoE |
+| Ultimate Judge | `nvidia/nemotron-3-ultra-550b-a55b` | NVIDIA, USA | 550B MoE |
+
+> Catalog refreshed 2026-10-29 — the earlier set (`llama-3.1-8b-instruct`, `mistral-7b-instruct-v0.3`, `gemma-3-4b-it`, `nemotron-70b-instruct`, `llama-3.1-405b-instruct`) returned 404 "Function not found for account" on NVIDIA's free tier.
 
 #### 503 / 404 fallback pool
 
 NIM's free tier can queue-fill (503) or deprecate models (404). `nim_client.stream_generate` automatically retries the next model in the pool — the user never sees the error.
 
-**Council pool** (13 models, tried in order on failure):
+**Council pool** (verified live 2026-10-29, tried in order on failure):
 ```
-meta/llama-3.2-3b-instruct
-google/gemma-3-4b-it
-microsoft/phi-4-mini-instruct
-meta/llama-3.2-1b-instruct
-ibm/granite-3.0-3b-a800m-instruct
-meta/llama-3.1-8b-instruct
-mistralai/mistral-7b-instruct-v0.3
-ibm/granite-3.0-8b-instruct
-nvidia/llama-3.1-nemotron-nano-8b-v1
-google/gemma-3-12b-it
-nv-mistralai/mistral-nemo-12b-instruct
-mistralai/ministral-14b-instruct-2512
-microsoft/phi-3.5-moe-instruct
+nvidia/nemotron-3.5-lightning-30b-a3b
+nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
+openai/gpt-oss-20b
+meta/llama-3.2-11b-vision-instruct
+nvidia/nemotron-3.5-bolt-e4b
 ```
 
-**Judge pool** (5 models):
+**Judge pool** (verified live 2026-10-29):
 ```
-nvidia/llama-3.1-nemotron-70b-instruct
-meta/llama-3.1-70b-instruct
-meta/llama-3.3-70b-instruct
-mistralai/mistral-large
-nvidia/llama-3.1-nemotron-51b-instruct
+nvidia/nemotron-3.5-super-vl-120b-a12b
+nvidia/nemotron-3-ultra-550b-a55b
 ```
 
 Only 503 (queue full) and 404 (model not on tier) trigger a retry. Any other status code (401, 429, 500…) surfaces immediately.
@@ -345,7 +337,7 @@ Every completed query is written to `results/session_<timestamp>.json`.
   "plan": "web",
   "council": [
     {
-      "model":            "meta/llama-3.1-8b-instruct",
+      "model":            "meta/llama-3.2-11b-vision-instruct",
       "origin":           "Meta, USA",
       "response":         "Gravity is...",
       "latency_seconds":  3.2,
@@ -353,7 +345,7 @@ Every completed query is written to `results/session_<timestamp>.json`.
     }
   ],
   "judge": {
-    "model":            "nvidia/llama-3.1-nemotron-70b-instruct",
+    "model":            "nvidia/nemotron-3.5-super-vl-120b-a12b",
     "origin":           "NVIDIA, USA",
     "response":         "▸ My own answer\n\n...\n\n▸ Reviewing the council + final verdict\n\n...",
     "latency_seconds":  8.1,
@@ -397,8 +389,8 @@ The judge `response` always contains both phases separated by the `▸` markers 
 | `BACKEND` | `nim` | No |
 | `NVIDIA_API_KEY` | `nvapi-...` | **Yes** |
 | `NIM_BASE` | `https://integrate.api.nvidia.com/v1` | No |
-| `COUNCIL_MODELS` | `meta/llama-3.1-8b-instruct,mistralai/mistral-7b-instruct-v0.3,google/gemma-3-4b-it` | No |
-| `JUDGE_MODEL` | `nvidia/llama-3.1-nemotron-70b-instruct` | No |
+| `COUNCIL_MODELS` | `meta/llama-3.2-11b-vision-instruct,openai/gpt-oss-20b,nvidia/nemotron-3.5-lightning-30b-a3b` | No |
+| `JUDGE_MODEL` | `nvidia/nemotron-3.5-super-vl-120b-a12b` | No |
 
 > `render.yaml` provides defaults for non-secret vars. The dashboard value takes precedence — update the dashboard to change models without a redeploy.
 
