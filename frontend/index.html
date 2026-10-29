@@ -1052,6 +1052,14 @@
       panelModel[d.panel] = d.model;
     });
 
+    es.addEventListener('council_model_resolved', (ev) => {
+      const d = JSON.parse(ev.data);
+      const c = cards[d.panel];
+      if (!c) return;
+      c.querySelector('.card-model').textContent = d.model;
+      panelModel[d.panel] = d.model;
+    });
+
     es.addEventListener('council_chunk', (ev) => {
       const d = JSON.parse(ev.data);
       panelText[d.panel] = (panelText[d.panel] || '') + d.text;
@@ -1082,6 +1090,12 @@
       verdictText = '';
       verdictModel = d.model;
       setStatus('synthesis in progress…');
+    });
+
+    es.addEventListener('judge_model_resolved', (ev) => {
+      const d = JSON.parse(ev.data);
+      verdictSub.textContent = d.model;
+      verdictModel = d.model;
     });
 
     es.addEventListener('judge_chunk', (ev) => {

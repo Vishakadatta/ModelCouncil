@@ -622,6 +622,7 @@ async def _stream_one_council(
 
     chunks: list[str] = []
     tokens = 0
+    server_model: str | None = None
     t0 = time.perf_counter()
     async for text, raw in orch._stream_generate(
         client, model, question, keep_alive=COUNCIL_KEEP_ALIVE
@@ -629,6 +630,19 @@ async def _stream_one_council(
         if text:
             chunks.append(text)
             await _emit(queue, "council_chunk", {"panel": panel, "text": text})
+        # First time NIM reveals which model actually answered: if it differs
+        # from the requested one (a fallback kicked in), tell the UI so the
+        # card label matches reality.
+        if server_model is None and raw.get("server_model"):
+            server_model = raw["server_model"]
+            if server_model and server_model != model:
+                real_origin = origin_for(server_model)
+                await _emit(queue, "council_model_resolved", {
+                    "panel":  panel,
+                    "model":  server_model,
+                    "origin": real_origin,
+                    "flag":   _flag_for(real_origin),
+                })
         if raw.get("done"):
             tokens = int(raw.get("eval_count", 0))
     latency = round(time.perf_counter() - t0, 2)
@@ -639,9 +653,11 @@ async def _stream_one_council(
         "tokens":  tokens,
     })
 
+    final_model  = server_model or model
+    final_origin = origin_for(final_model) if server_model else origin
     return CouncilTurn(
-        model=model,
-        origin=origin,
+        model=final_model,
+        origin=final_origin,
         response="".join(chunks).strip(),
         latency_seconds=latency,
         tokens_generated=tokens,
@@ -686,7 +702,9 @@ async def _run_session(
                 if text:
                     own_chunks.append(text)
                     await _emit(queue, "judge_chunk", {"text": text})
-                # Capture NIM's self-reported judge model — proof of identity
+                # Capture NIM's self-reported judge model — proof of identity.
+                # If a fallback kicked in, surface the real model to the UI so the
+                # verdict subtitle isn't a stale/dead name.
                 if judge_server_model is None and raw.get("server_model"):
                     judge_server_model = raw["server_model"]
                     print(
@@ -694,6 +712,13 @@ async def _run_session(
                         f"server={judge_server_model} client={client_id} ip={client_ip}",
                         flush=True,
                     )
+                    if judge_server_model and judge_server_model != orch.judge_model:
+                        real_jo = origin_for(judge_server_model)
+                        await _emit(queue, "judge_model_resolved", {
+                            "model":  judge_server_model,
+                            "origin": real_jo,
+                            "flag":   _flag_for(real_jo),
+                        })
                 if raw.get("done"):
                     own_tokens = int(raw.get("eval_count", 0))
             own_answer = "".join(own_chunks).strip()
@@ -717,9 +742,13 @@ async def _run_session(
                     delib_tokens = int(raw.get("eval_count", 0))
             judge_latency = round(time.perf_counter() - t0, 2)
 
+            final_judge_model  = judge_server_model or orch.judge_model
+            final_judge_origin = (
+                origin_for(final_judge_model) if judge_server_model else judge_origin
+            )
             judge_turn = JudgeTurn(
-                model=orch.judge_model,
-                origin=judge_origin,
+                model=final_judge_model,
+                origin=final_judge_origin,
                 response=(
                     "▸ My own answer\n\n"
                     + own_answer
