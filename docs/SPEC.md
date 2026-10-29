@@ -273,11 +273,31 @@ FastAPI application. All business logic lives in `orchestrator.py` — this file
 |--------|------|-------------|
 | `GET` | `/` | Serves `frontend/index.html` |
 | `HEAD` | `/` | 200 with no body (Render uptime probe) |
-| `GET` | `/health` | Backend status JSON |
+| `GET` | `/health` | Backend status JSON (see note below) |
 | `HEAD` | `/health` | 200 with no body (proxy health checks) |
 | `POST` | `/ask` | Creates session, starts async pipeline, returns `{session_id}` |
 | `GET` | `/stream/{sid}` | SSE event stream for a session |
 | `GET` | `/history` | Last 10 saved sessions from `results/` |
+| `GET` | `/admin/history` | All sessions; requires `?token=` matching `ADMIN_TOKEN` (constant-time compare) |
+| `POST` | `/api/infer` | Observatory single inference (blocklist-enforced) |
+| `POST` | `/api/loadtest` | Observatory load test (blocklist-enforced) |
+
+**`/health` reports effective models, not raw env.** The `council`/`judge`/`models`
+fields are resolved through the verified-invokable NIM fallback pools, so a
+deployment whose `COUNCIL_MODELS`/`JUDGE_MODEL` env still names a deprecated model
+shows what will *actually* answer. The raw env values are echoed under `requested`.
+
+**Input / resource bounds (hardening):**
+- `AskRequest.question` and `UltimateJudgeRequest.question`: 1–4000 chars.
+- `/api/infer`: `prompt` 1–8000 chars, `max_tokens` 1–2048.
+- `/api/loadtest`: `concurrency` 1–16, `num_requests` 1–50, `max_tokens` 1–2048.
+- `/api/infer` and `/api/loadtest` reject blocked publishers (`_obs_assert_allowed`)
+  at invocation — not just in the `/api/models` listing. Blocklist is imported from
+  `council.models.NIM_BLOCKED_PUBLISHERS` (single source of truth).
+- Session queues are bounded (`maxsize=512`) and reaped after a 15-min TTL by a
+  background task started in the FastAPI `lifespan`, so orphaned sessions (POST
+  `/ask` with no `/stream` subscriber) cannot leak memory. **Per-process state —
+  assumes a single worker.**
 
 **`_resolve_env()` — config priority:**
 1. `BACKEND` already in `os.environ` → managed environment (Render, Docker) — use env vars directly, skip file loading

@@ -10,27 +10,32 @@ DO NOT CHANGE: the judge two-phase logic (independent answer → deliberation).
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
+import logging
 import os
 import statistics
 import time
 import uuid
+from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import NamedTuple, Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+log = logging.getLogger("modelcouncil")
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from sse_starlette.sse import EventSourceResponse
 
-from council.models import ModelPolicyError, origin_for
+from council.models import NIM_BLOCKED_PUBLISHERS, ModelPolicyError, origin_for
 from council.orchestrator import (
     COUNCIL_KEEP_ALIVE,
     CouncilTurn,
@@ -156,10 +161,58 @@ def _resolve_judge_live(judge: str, pool: list[str]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Session registry — bounded queues, reaped on a TTL so orphaned sessions
+# (a client that POSTs /ask but never opens /stream/{sid}) cannot leak memory.
+# NOTE: this is per-process state; it assumes a single worker. For multi-worker
+# or multi-instance deploys this must move to a shared store (e.g. Redis).
+# ---------------------------------------------------------------------------
+
+SESSION_TTL_SECONDS = 15 * 60
+SESSION_QUEUE_MAX   = 512
+
+
+class _SessionEntry(NamedTuple):
+    queue:   asyncio.Queue
+    created: float
+
+
+# Per-session event queues; reader drains, producer pushes.
+SESSIONS: dict[str, _SessionEntry] = {}
+
+
+def _new_session(prefix: str = "") -> tuple[str, asyncio.Queue]:
+    sid = prefix + uuid.uuid4().hex[:12]
+    queue: asyncio.Queue = asyncio.Queue(maxsize=SESSION_QUEUE_MAX)
+    SESSIONS[sid] = _SessionEntry(queue, time.monotonic())
+    return sid, queue
+
+
+async def _reap_sessions() -> None:
+    """Evict sessions older than the TTL whose stream was never drained."""
+    while True:
+        await asyncio.sleep(60)
+        now = time.monotonic()
+        for sid, entry in list(SESSIONS.items()):
+            if now - entry.created > SESSION_TTL_SECONDS:
+                SESSIONS.pop(sid, None)
+                log.info("reaped stale session %s", sid)
+
+
+@asynccontextmanager
+async def lifespan(_app: "FastAPI"):
+    _init_admin_db()
+    reaper = asyncio.create_task(_reap_sessions())
+    try:
+        yield
+    finally:
+        reaper.cancel()
+
+
+# ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="Model Council")
+app = FastAPI(title="Model Council", lifespan=lifespan)
 
 # Rate limiter — keyed by client IP. Applied per-route via decorator.
 limiter = Limiter(key_func=get_remote_address)
@@ -185,10 +238,6 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
-
-# Per-session event queues; reader drains, producer pushes.
-SESSIONS: dict[str, asyncio.Queue] = {}
-
 
 def _resolve_env() -> tuple[list[str], str, str, bool]:
     """
@@ -230,7 +279,7 @@ def _resolve_env() -> tuple[list[str], str, str, bool]:
 # ---------------------------------------------------------------------------
 
 class AskRequest(BaseModel):
-    question: str
+    question: str = Field(..., min_length=1, max_length=4000)
 
 
 @app.get("/")
@@ -366,7 +415,7 @@ async def admin_history(request: Request, token: str = ""):
     Auth: pass ?token=... matching ADMIN_TOKEN env var."""
     if not ADMIN_TOKEN:
         raise HTTPException(403, "Admin route disabled (ADMIN_TOKEN not set)")
-    if token != ADMIN_TOKEN:
+    if not hmac.compare_digest(token.encode(), ADMIN_TOKEN.encode()):
         raise HTTPException(403, "Invalid admin token")
 
     try:
@@ -407,18 +456,16 @@ async def ask(request: Request, req: AskRequest):
     except ModelPolicyError as e:
         raise HTTPException(400, str(e))
 
-    sid: str = uuid.uuid4().hex[:12]
-    queue: asyncio.Queue = asyncio.Queue()
-    SESSIONS[sid] = queue
+    sid, queue = _new_session()
     asyncio.create_task(_run_session(sid, question, orch, queue, client_id, client_ip))
     return {"session_id": sid}
 
 
 class UltimateJudgeRequest(BaseModel):
-    question: str
-    council_summaries: list[dict] = []  # [{model, response}]
-    previous_verdict: str = ""
-    previous_judge_model: str = ""
+    question: str = Field(..., min_length=1, max_length=4000)
+    council_summaries: list[dict] = Field(default_factory=list, max_length=10)  # [{model, response}]
+    previous_verdict: str = Field("", max_length=12000)
+    previous_judge_model: str = Field("", max_length=200)
 
 
 ULTIMATE_JUDGE_MODEL = "nvidia/nemotron-3-ultra-550b-a55b"  # 550B MoE — the boss
@@ -497,9 +544,7 @@ async def ultimate_judge(request: Request, req: UltimateJudgeRequest):
     client_id = _get_client_id(request)
     client_ip = (request.client.host if request.client else "unknown")
 
-    sid: str = "ult-" + uuid.uuid4().hex[:12]
-    queue: asyncio.Queue = asyncio.Queue()
-    SESSIONS[sid] = queue
+    sid, queue = _new_session(prefix="ult-")
 
     asyncio.create_task(_run_ultimate_judge(sid, req, queue, client_id, client_ip))
     return {"session_id": sid, "model": ULTIMATE_JUDGE_MODEL}
@@ -571,9 +616,10 @@ async def _run_ultimate_judge(
 
 @app.get("/stream/{sid}")
 async def stream(sid: str):
-    queue = SESSIONS.get(sid)
-    if queue is None:
+    entry = SESSIONS.get(sid)
+    if entry is None:
         raise HTTPException(404, "unknown session")
+    queue = entry.queue
 
     async def event_gen():
         try:
@@ -840,14 +886,10 @@ async def _run_session(
 # ---------------------------------------------------------------------------
 
 _OBS_NIM_BASE      = "https://integrate.api.nvidia.com/v1"
-_OBS_DEFAULT_MODEL = "meta/llama-3.1-8b-instruct"
+_OBS_DEFAULT_MODEL = "meta/llama-3.2-11b-vision-instruct"
 
-_OBS_BLOCKED: frozenset[str] = frozenset({
-    "deepseek-ai", "deepseek", "qwen", "alibaba", "01-ai",
-    "thudm", "zhipu-ai", "zhipuai", "glm",
-    "minimax-ai", "minimaxai", "moonshot-ai", "moonshotai",
-    "baichuan-inc", "baichuan", "z-ai", "internlm", "openbmb",
-})
+# Single source of truth — same blocklist the council enforces.
+_OBS_BLOCKED: frozenset[str] = frozenset(NIM_BLOCKED_PUBLISHERS)
 
 _OBS_PROMPTS = {
     "short":  "What is a GPU?",
@@ -878,17 +920,27 @@ def _obs_allowed(model_id: str) -> bool:
     return model_id.split("/")[0].lower() not in _OBS_BLOCKED
 
 
+def _obs_assert_allowed(model_id: str) -> None:
+    """Enforce the publisher blocklist at the point a model is actually invoked.
+
+    Filtering only the /api/models listing is not enough — a client can POST a
+    blocked model straight to /api/infer or /api/loadtest. This closes that bypass.
+    """
+    if not _obs_allowed(model_id):
+        raise HTTPException(403, f"Publisher of '{model_id}' is blocked by policy.")
+
+
 class _ObsInferReq(BaseModel):
-    prompt:     str
+    prompt:     str = Field(..., min_length=1, max_length=8000)
     model:      Optional[str] = None
-    max_tokens: int = 256
+    max_tokens: int = Field(256, ge=1, le=2048)
 
 
 class _ObsLoadTestReq(BaseModel):
     prompt_preset: str = "short"
-    concurrency:   int = 4
-    num_requests:  int = 20
-    max_tokens:    int = 100
+    concurrency:   int = Field(4,  ge=1, le=16)
+    num_requests:  int = Field(20, ge=1, le=50)
+    max_tokens:    int = Field(100, ge=1, le=2048)
     model:         Optional[str] = None
 
 
@@ -1037,6 +1089,7 @@ async def obs_models():
 @limiter.limit("10/minute")
 async def obs_infer(request: Request, req: _ObsInferReq):
     model = req.model or _OBS_DEFAULT_MODEL
+    _obs_assert_allowed(model)
     try:
         return await _obs_stream(req.prompt, model, req.max_tokens)
     except HTTPException:
@@ -1050,12 +1103,9 @@ async def obs_infer(request: Request, req: _ObsInferReq):
 async def obs_loadtest(request: Request, req: _ObsLoadTestReq):
     if req.prompt_preset not in _OBS_PROMPTS:
         raise HTTPException(400, f"prompt_preset must be one of {list(_OBS_PROMPTS)}")
-    if req.concurrency > 16:
-        raise HTTPException(400, "concurrency max is 16")
-    if req.num_requests > 50:
-        raise HTTPException(400, "num_requests max is 50")
 
     model  = req.model or _OBS_DEFAULT_MODEL
+    _obs_assert_allowed(model)
     prompt = _OBS_PROMPTS[req.prompt_preset]
     sem    = asyncio.Semaphore(req.concurrency)
 
