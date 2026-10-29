@@ -103,10 +103,11 @@ async def stream_generate(
                 yield item
             return  # success
         except httpx.HTTPStatusError as e:
-            if e.response.status_code in (400, 404, 503):
+            if e.response.status_code in (400, 404, 410, 503):
                 # 400 = NIM marks the model "DEGRADED function cannot be invoked"
                 #       — transient outage on NVIDIA's side
                 # 404 = model not available on this tier
+                # 410 = model deprecated/removed from the catalog
                 # 503 = free-tier queue full
                 last_error = e
                 continue  # try next candidate
