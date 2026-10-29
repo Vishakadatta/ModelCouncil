@@ -125,6 +125,36 @@ def _flag_for(origin: str) -> str:
     return "🏳️"
 
 
+def _resolve_council_live(council: list[str], pool: list[str]) -> list[str]:
+    """Report the council models that will actually answer.
+
+    NVIDIA's /v1/models lists models the account can't actually invoke (they
+    return 404 "not found for account" / 410 at call time), so catalog
+    membership is not a reliable liveness signal. The fallback pool, by
+    contrast, is verified-invokable. A configured model that is in the pool is
+    trusted as-is; anything else is treated as stale and replaced by the next
+    unused pool member, mirroring stream_generate's fall-through — and kept
+    distinct so the council stays diverse.
+    """
+    used: set[str] = set()
+    out: list[str] = []
+    for m in council:
+        if m in pool:
+            pick = m
+        else:
+            pick = next((c for c in pool if c not in used), m)
+        out.append(pick)
+        used.add(pick)
+    return out
+
+
+def _resolve_judge_live(judge: str, pool: list[str]) -> str:
+    """Judge counterpart of _resolve_council_live (no diversity constraint)."""
+    if judge in pool:
+        return judge
+    return pool[0] if pool else judge
+
+
 # ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
@@ -232,6 +262,7 @@ async def health():
     backend = os.environ.get("BACKEND", "ollama")
 
     if backend == "nim":
+        from council import nim_client
         api_key = os.environ.get("NVIDIA_API_KEY", "")
         nim_ok  = False
         try:
@@ -243,13 +274,21 @@ async def health():
                 nim_ok = r.status_code == 200
         except httpx.HTTPError:
             nim_ok = False
+
+        # Report the models that will ACTUALLY answer. A configured model that
+        # is no longer invokable (stale env / deprecated → 410/404 at call time)
+        # is replaced by the fallback stream_generate would use, so the badge
+        # matches reality even when Render's env vars lag behind.
+        eff_council = _resolve_council_live(council, nim_client.COUNCIL_FALLBACK_POOL)
+        eff_judge   = _resolve_judge_live(judge, nim_client.JUDGE_FALLBACK_POOL)
         return {
-            "status":  "ok" if nim_ok else "degraded",
-            "backend": "nim",
-            "nim":     "connected" if nim_ok else "unreachable",
-            "models":  council + [judge],
-            "council": council,
-            "judge":   judge,
+            "status":    "ok" if nim_ok else "degraded",
+            "backend":   "nim",
+            "nim":       "connected" if nim_ok else "unreachable",
+            "models":    eff_council + [eff_judge],
+            "council":   eff_council,
+            "judge":     eff_judge,
+            "requested": {"council": council, "judge": judge},
         }
 
     # Ollama backend
